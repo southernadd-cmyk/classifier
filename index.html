@@ -1,0 +1,272 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Lab Clone</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.21.4/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.4.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function App() {
+      const [csvData, setCsvData] = useState(null);
+      const [columns, setColumns] = useState([]);
+      const [label, setLabel] = useState('');
+      const [features, setFeatures] = useState([]);
+      const [model, setModel] = useState(null);
+      const [trainingStatus, setTrainingStatus] = useState('');
+      const [predictionInput, setPredictionInput] = useState({});
+      const [predictionResult, setPredictionResult] = useState('');
+
+      // Handle CSV upload
+      const handleFileUpload = (event) => {
+        const file = event.target.files[0];
+        Papa.parse(file, {
+          header: true,
+          complete: (result) => {
+            setCsvData(result.data);
+            setColumns(Object.keys(result.data[0] || {}));
+          },
+          error: (error) => alert('Error parsing CSV: ' + error),
+        });
+      };
+
+      // Create and train model
+      const trainModel = async () => {
+        if (!label || features.length === 0) {
+          alert('Please select a label and at least one feature.');
+          return;
+        }
+
+        setTrainingStatus('Training...');
+        const tfModel = tf.sequential();
+        tfModel.add(tf.layers.dense({
+          units: 10,
+          activation: 'relu',
+          inputShape: [features.length],
+        }));
+        tfModel.add(tf.layers.dense({
+          units: [...new Set(csvData.map(row => row[label]))].length,
+          activation: 'softmax',
+        }));
+        tfModel.compile({
+          optimizer: 'adam',
+          loss: 'categoricalCrossentropy',
+          metrics: ['accuracy'],
+        });
+
+        // Prepare data
+        const xs = [];
+        const ys = [];
+        const labelValues = [...new Set(csvData.map(row => row[label]))];
+        const labelToIndex = labelValues.reduce((acc, val, i) => ({ ...acc, [val]: i }), {});
+
+        csvData.forEach(row => {
+          const featureValues = features.map(f => parseFloat(row[f]) || 0);
+          xs.push(featureValues);
+          const labelIndex = labelToIndex[row[label]];
+          const oneHot = Array(labelValues.length).fill(0);
+          oneHot[labelIndex] = 1;
+          ys.push(oneHot);
+        });
+
+        const xsTensor = tf.tensor2d(xs);
+        const ysTensor = tf.tensor2d(ys);
+
+        // Train
+        await tfModel.fit(xsTensor, ysTensor, {
+          epochs: 50,
+          callbacks: {
+            onEpochEnd: (epoch, logs) => {
+              setTrainingStatus(`Training... Epoch ${epoch + 1}, Accuracy: ${(logs.acc * 100).toFixed(2)}%`);
+            },
+          },
+        });
+
+        setModel(tfModel);
+        setTrainingStatus('Training complete!');
+        tfModel.summary();
+
+        xsTensor.dispose();
+        ysTensor.dispose();
+      };
+
+      // Test prediction
+      const testPrediction = async () => {
+        if (!model) {
+          alert('Train a model first.');
+          return;
+        }
+        const input = features.map(f => parseFloat(predictionInput[f]) || 0);
+        const inputTensor = tf.tensor2d([input]);
+        const prediction = model.predict(inputTensor);
+        const result = await prediction.array();
+        const predictedClass = [...new Set(csvData.map(row => row[label]))][result[0].indexOf(Math.max(...result[0]))];
+        setPredictionResult(`Predicted: ${predictedClass}`);
+        inputTensor.dispose();
+        prediction.dispose();
+      };
+
+      // Export model
+      const exportModel = async () => {
+        if (!model) {
+          alert('Train a model first.');
+          return;
+        }
+        await model.save('downloads://my-model');
+        alert('Model downloaded as TensorFlow.js format (model.json + weights.bin).');
+      };
+
+      // Handle prediction input changes
+      const handlePredictionInput = (feature, value) => {
+        setPredictionInput({ ...predictionInput, [feature]: value });
+      };
+
+      return (
+        <div className="container mx-auto p-4">
+          <h1 className="text-2xl font-bold mb-4">AI Lab Clone</h1>
+
+          {/* CSV Upload */}
+          <div className="mb-4">
+            <label className="block text-lg font-medium">Upload CSV</label>
+            <input type="file" accept=".csv" onChange={handleFileUpload} className="mt-2" />
+          </div>
+
+          {/* Label Selection */}
+          {columns.length > 0 && (
+            <div className="mb-4">
+              <label className="block text-lg font-medium">Select Label to Predict</label>
+              <select
+                className="border p-2 rounded"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+              >
+                <option value="">Select a label</option>
+                {columns.map(col => (
+                  <option key={col} value={col}>{col}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Feature Selection */}
+          {columns.length > 0 && (
+            <div className="mb-4">
+              <label className="block text-lg font-medium">Select Features</label>
+              {columns.filter(col => col !== label).map(col => (
+                <div key={col} className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={features.includes(col)}
+                    onChange={() => {
+                      setFeatures(prev =>
+                        prev.includes(col) ? prev.filter(f => f !== col) : [...prev, col]
+                      );
+                    }}
+                    className="mr-2"
+                  />
+                  <span>{col}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Train Button */}
+          {csvData && (
+            <button
+              onClick={trainModel}
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Train Model
+            </button>
+          )}
+          <p className="mt-2">{trainingStatus}</p>
+
+          {/* Test Prediction */}
+          {model && (
+            <div className="mt-4">
+              <h2 className="text-lg font-medium">Test Prediction</h2>
+              {features.map(f => (
+                <div key={f} className="mb-2">
+                  <label>{f}: </label>
+                  <input
+                    type="number"
+                    onChange={(e) => handlePredictionInput(f, e.target.value)}
+                    className="border p-1 rounded"
+                  />
+                </div>
+              ))}
+              <button
+                onClick={testPrediction}
+                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+              >
+                Predict
+              </button>
+              <p className="mt-2">{predictionResult}</p>
+            </div>
+          )}
+
+          {/* Export Button */}
+          {model && (
+            <button
+              onClick={exportModel}
+              className="mt-4 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+            >
+              Export Model
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
