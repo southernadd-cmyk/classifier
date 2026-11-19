@@ -284,8 +284,8 @@ async function train() {
     vocabulary = vocab;
     split = parts;
     // Show accuracy for the restored best-validation checkpoint.
-    const trainResult=created.evaluate(trainX,trainY);
-    const valResult=created.evaluate(validationX,validationY);
+    const trainResult=model.evaluate(trainX,trainY);
+    const valResult=model.evaluate(validationX,validationY);
     const trainT=Array.isArray(trainResult)?trainResult:[trainResult];
     const valT=Array.isArray(valResult)?valResult:[valResult];
     E("trainAccuracy").textContent=formatPercent((await trainT[1].data())[0]);
