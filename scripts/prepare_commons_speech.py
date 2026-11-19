@@ -22,7 +22,7 @@ from pathlib import Path
 SOURCE = "https://reshare.ukdataservice.ac.uk/854292/1/speeches.zip"
 SEED = 20261119
 # Four time periods, both parties. Reservoir pool is intentionally bigger than final sample.
-PER_PERIOD = 650
+PER_PERIOD = 1800
 RESERVOIR = PER_PERIOD * 4
 WORD_RE = re.compile(r"[A-Za-z]+(?:['’][A-Za-z]+)?")
 TAG_RE = re.compile(r"<[^>]*>")
@@ -57,7 +57,7 @@ def clean_text(raw):
     return text
 
 
-def process_archive(archive, out, per_period=PER_PERIOD, max_per_mp=16):
+def process_archive(archive, out, per_period=PER_PERIOD, max_per_mp=12):
     randomizer = random.Random(SEED)
     pools = defaultdict(list)
     seen = Counter()
@@ -155,7 +155,7 @@ def process_archive(archive, out, per_period=PER_PERIOD, max_per_mp=16):
         "credit": "Jack Blumenau (2021), UK Data Service, 10.5255/UKDA-SN-854292",
         "source": "https://reshare.ukdataservice.ac.uk/854292/",
         "license": "Open Parliament Licence v3.0",
-        "sampling": "Reservoir sample by period and party, with cap per speaker; excludes speeches shorter than 45 or longer than 500 words.",
+        "sampling": f"Balanced reservoir by period and party (up to {per_period} per group, max {max_per_mp} per speaker per period); excludes speeches shorter than 45 or longer than 500 words.",
         "classes": ["Labour", "Conservative"],
         "counts": dict(by_party),
         "speakers": speakers,

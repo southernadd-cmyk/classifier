@@ -6,9 +6,11 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from scripts.prepare_commons_speech import normalise_party, clean_text, process_archive
+from scripts.prepare_commons_speech import PER_PERIOD, normalise_party, clean_text, process_archive
 
 class PrepareCommonsSpeechTest(unittest.TestCase):
+    def test_expanded_default(self):
+        self.assertGreaterEqual(PER_PERIOD, 1500)
     def test_parties(self):
         self.assertEqual(normalise_party("Lab"), "Labour")
         self.assertEqual(normalise_party("Labour Co-op"), "Labour")

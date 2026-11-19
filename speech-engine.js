@@ -71,46 +71,60 @@
     for (let i=0; i<valid.length-1; i++) if(valid[i] && valid[i+1]) terms.push(valid[i]+" "+valid[i+1]);
     return terms;
   }
-  function buildVocabulary(trainingDocs, limit = 650) {
-    const df = new Map(), totals = {Labour:0,Conservative:0};
-    for (const doc of trainingDocs) {
-      if(!Object.prototype.hasOwnProperty.call(totals,doc.party)) continue;
-      totals[doc.party]++;
-      for (const word of new Set(featureTokens(doc.text))) {
-        if(!df.has(word)) df.set(word,{Labour:0,Conservative:0});
-        df.get(word)[doc.party]++;
+  function buildVocabulary(trainingDocs,limit=650) {
+    // Count the MPs using each term so repeated speeches by one MP don't dominate.
+    const speakerTerms=new Map(),docFreq=new Map();
+    let nDocs=0;
+    for(const doc of trainingDocs) {
+      if(doc.party!=="Labour"&&doc.party!=="Conservative")continue;
+      nDocs++;
+      const key=String(doc.mp)+"|"+doc.party;
+      if(!speakerTerms.has(key))speakerTerms.set(key,{party:doc.party,terms:new Set()});
+      const group=speakerTerms.get(key);
+      for(const word of new Set(featureTokens(doc.text))) {
+        group.terms.add(word);
+        docFreq.set(word,(docFreq.get(word)||0)+1);
       }
     }
-    // Score features using only the training labels; no validation/test leakage.
-    const n = totals.Labour + totals.Conservative;
-    const sorted = [...df.entries()].map(([term,t]) => {
+    const totals={Labour:0,Conservative:0},bySpeaker=new Map();
+    for(const group of speakerTerms.values()) {
+      totals[group.party]++;
+      for(const word of group.terms) {
+        if(!bySpeaker.has(word))bySpeaker.set(word,{Labour:0,Conservative:0});
+        bySpeaker.get(word)[group.party]++;
+      }
+    }
+    const n=totals.Labour+totals.Conservative;
+    const ranked=[...bySpeaker].map(([term,t])=>{
       const a=t.Labour,b=t.Conservative,c=totals.Labour-a,d=totals.Conservative-b;
-      const count=a+b, denominator=(a+b)*(c+d)*(a+c)*(b+d);
-      const score=denominator>0 ? n*Math.pow(a*d-b*c,2)/denominator : 0;
-      return [term,count,score];
-    }).filter(([,count])=>count>=8 && count<=n*.85)
-      .sort((a,b)=>b[2]-a[2] || b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,limit);
-    // Tiny demonstration datasets may have few discriminating features;
-    // fill remaining slots with frequent terms rather than failing the lesson.
-    if(sorted.length < Math.min(20,limit)) {
-      const present=new Set(sorted.map(row=>row[0]));
-      const fallback=[...df.entries()]
-        .map(([term,counts])=>[term,counts.Labour+counts.Conservative,0])
-        .filter(([,count])=>count>=2)
-        .sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-      for(const row of fallback) {
-        if(sorted.length >= Math.min(20,limit)) break;
-        if(!present.has(row[0])) {sorted.push(row);present.add(row[0]);}
+      const count=a+b,denom=(a+b)*(c+d)*(a+c)*(b+d);
+      return [term,count,denom>0?n*(a*d-b*c)**2/denom:0];
+    }).filter(([,count])=>count>=3 && count<=n*.85)
+      .sort((a,b)=>b[2]-a[2]||b[1]-a[1]||a[0].localeCompare(b[0]));
+    const selected=ranked.slice(0,limit);
+    // Keep tiny classroom fixtures usable.
+    if(selected.length<Math.min(20,limit)) {
+      const chosen=new Set(selected.map(row=>row[0]));
+      for(const [term] of [...docFreq].filter(([,v])=>v>=2)
+          .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))) {
+        if(selected.length>=Math.min(20,limit))break;
+        if(!chosen.has(term)){selected.push([term,0,0]);chosen.add(term);}
       }
     }
-    if (sorted.length < 20) throw new Error("Too little meaningful speech text to build the vocabulary.");
-    return { words: sorted.map(([term]) => term),
-      idf: sorted.map(([, freq]) => Math.log((1 + n) / (1 + freq)) + 1),
-      trainDocs: n };
+    if(selected.length<20)throw new Error("Too little meaningful speech text to build the vocabulary.");
+    return {words:selected.map(([term])=>term),
+      idf:selected.map(([term])=>Math.log((1+nDocs)/(1+docFreq.get(term)))+1),
+      trainDocs:nDocs};
+  }
+  const indexCache=new WeakMap();
+  function vocabularyIndex(vocab) {
+    if(!indexCache.has(vocab))
+      indexCache.set(vocab,new Map(vocab.words.map((word,i)=>[word,i])));
+    return indexCache.get(vocab);
   }
   function makeVector(text, vocabulary) {
     const words = featureTokens(text);
-    const lookup = new Map(vocabulary.words.map((word, i) => [word, i]));
+    const lookup = vocabularyIndex(vocabulary);
     const counts = new Map();
     for (const word of words) {
       const index = lookup.get(word);
@@ -130,7 +144,9 @@
     return vec;
   }
   function encodeRows(rows, vocab) {
-    return rows.map(row => Array.from(makeVector(row.text, vocab)));
+    const width=vocab.words.length,flat=new Float32Array(rows.length*width);
+    rows.forEach((row,i)=>flat.set(makeVector(row.text,vocab),i*width));
+    return flat;
   }
   function modelInputsFromText(text, vocabulary) {
     return Array.from(makeVector(text, vocabulary));

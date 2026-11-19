@@ -20,6 +20,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Preserve original 5,200-speech sample
+        run: |
+          if [ ! -f data/commons-speech-original.json ]; then
+            cp data/commons-speech-sample.json data/commons-speech-original.json
+          fi
       - name: Download CommonsSpeech and create balanced small sample
         run: python scripts/prepare_commons_speech.py --out data/commons-speech-sample.json
       - name: Verify prepared sample
@@ -31,7 +36,10 @@ jobs:
           d = json.loads(Path('data/commons-speech-sample.json').read_text())
           c = Counter(x['party'] for x in d['examples'])
           print('Classes:', c, 'MPs:', d['speakers'])
-          assert set(c) == {'Labour', 'Conservative'} and min(c.values()) >= 100
+          assert set(c) == {'Labour', 'Conservative'} and min(c.values()) >= 3500
+          assert len(d['examples']) >= 7000
+          original = json.loads(Path('data/commons-speech-original.json').read_text())
+          assert len(original['examples']) == 5200
           assert min(d['speakers'].values()) >= 8
           assert Path('data/commons-speech-sample.json').stat().st_size < 15_000_000
           PY
@@ -39,7 +47,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/commons-speech-sample.json
+          git add data/commons-speech-original.json data/commons-speech-sample.json
           if git diff --cached --quiet; then
             echo "Teaching sample is unchanged; nothing to publish."
             exit 0

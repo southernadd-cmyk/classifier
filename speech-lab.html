@@ -41,7 +41,7 @@
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="max-w-3xl">
           <h2 class="text-xl font-bold">1. The dataset</h2>
-          <p class="mt-2 text-sm text-slate-600">A balanced, compact sample from Jack Blumenau's <em>House of Commons Parliamentary Debates, 1979–2019</em>, hosted by the UK Data Service. Parliamentary texts are reproduced under the Open Parliament Licence v3.0.</p>
+          <p class="mt-2 text-sm text-slate-600">An expanded, balanced sample from Jack Blumenau's <em>House of Commons Parliamentary Debates, 1979–2019</em>, hosted by the UK Data Service. Parliamentary texts are reproduced under the Open Parliament Licence v3.0.</p>
           <p id="dataStatus" class="mt-3 text-sm font-semibold" role="status" aria-live="polite">Loading the prepared speech sample…</p>
         </div>
         <a href="https://reshare.ukdataservice.ac.uk/854292/" target="_blank" rel="noopener noreferrer" class="secondary text-sm">Original dataset ↗</a>
@@ -70,12 +70,12 @@
         <a class="secondary text-sm" href="./speech-lab-overfitting.html">Try the original overfitting demo ↗</a>
       </div>
       <dl class="mt-4 grid gap-3 sm:grid-cols-2">
-        <div><dt class="font-semibold text-sm">Better word clues</dt><dd class="text-sm text-slate-600">Look for useful words and two-word phrases, not simply frequent words.</dd></div>
+        <div><dt class="font-semibold text-sm">Better word clues</dt><dd class="text-sm text-slate-600">Select clues used by several MPs, so one speaker repeating a phrase cannot dominate.</dd></div>
         <div><dt class="font-semibold text-sm">Optional early stopping</dt><dd class="text-sm text-slate-600">Switch it on to stop when validation stops improving. With it off, the network completes your chosen epochs. Either way, it keeps its best version.</dd></div>
         <div><dt class="font-semibold text-sm">Dropout and regularisation</dt><dd class="text-sm text-slate-600">Temporarily switch off some neurons and discourage overly strong connections during training.</dd></div>
         <div><dt class="font-semibold text-sm">A simpler model for comparison</dt><dd class="text-sm text-slate-600">Logistic regression predicts the party using the same word clues, but without hidden layers. Can it generalise better?</dd></div>
       </dl>
-      <p class="mt-3 text-xs text-slate-500">Choose settings using validation accuracy. Keep the unseen test set for the final check.</p>
+      <p class="mt-3 text-xs text-slate-500">The expanded sample differs from the frozen original demo, so raw scores are not a controlled before-and-after comparison. Choose settings with validation accuracy, then check the unseen test set.</p>
     </section>
     <div class="grid gap-5 lg:grid-cols-3">
       <section class="panel">
@@ -94,9 +94,10 @@
         </label>
         <label for="vocabulary" class="mt-4 block text-sm font-semibold">Vocabulary size</label>
         <select id="vocabulary" class="field mt-2">
-          <option value="350">350 terms · quick</option>
-          <option value="650" selected>650 terms · balanced</option>
-          <option value="1000">1,000 terms · richer</option>
+          <option value="650">650 terms · quick</option>
+          <option value="1000">1,000 terms · standard</option>
+          <option value="1600" selected>1,600 terms · detailed</option>
+          <option value="2200">2,200 terms · slower</option>
         </select>
         <div class="mt-5 flex flex-wrap items-center justify-between gap-2">
           <h3 class="font-semibold">Hidden layers</h3>
@@ -122,6 +123,7 @@
             <button type="button" class="secondary text-sm" id="showLoss" aria-pressed="false">Loss</button>
           </div>
         </div>
+        <p class="mt-2 text-xs text-slate-500">The graph shows the full run. A dashed line marks the best epoch; the accuracy cards use the saved model from that epoch.</p>
         <div id="chartArea" class="mt-3 rounded-xl border border-slate-200 bg-white p-3">
           <p class="py-20 text-center text-sm text-slate-400">Train a network to display its learning curves.</p>
         </div>

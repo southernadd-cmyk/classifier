@@ -176,7 +176,9 @@ function loadSample(data) {
 }
 async function initialiseData() {
   try {
-    const response = await fetch("./data/commons-speech-sample.json", {cache:"no-store"});
+    // The original teaching demo keeps the original 5,200-speech sample.
+    let response = await fetch("./data/commons-speech-original.json", {cache:"no-store"});
+    if(!response.ok)response=await fetch("./data/commons-speech-sample.json",{cache:"no-store"});
     if (!response.ok) throw new Error("HTTP " + response.status);
     const data = await response.json();
     loadSample(data);

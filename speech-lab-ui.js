@@ -16,6 +16,7 @@ let lastPoint = null;
 let busy = false;
 let metric = "accuracy";
 let heldOutChoice = null;
+let selectedEpoch = null;
 
 const textStatus = message => { E("trainingStatus").textContent = message; };
 const formatPercent = number => Number.isFinite(number) ? (number * 100).toFixed(1) + "%" : "—";
@@ -46,7 +47,7 @@ const setBusy = value => {
 
 function resetModel() {
   if (model) model.dispose();
-  model = null; vocabulary = null; split = null; lastPoint = null; heldOutChoice = null;
+  model = null; vocabulary = null; split = null; lastPoint = null; heldOutChoice = null; selectedEpoch=null;
   epochsHistory = [];
   ["trainAccuracy","validationAccuracy","testAccuracy"].forEach(id => E(id).textContent = "—");
   E("splitInfo").textContent = "A majority-class baseline is useful for checking whether the network is actually learning.";
@@ -131,7 +132,9 @@ function drawChart() {
   const keyVal = metric === "accuracy"?"valAccuracy":"valLoss";
   const values = epochsHistory.flatMap(row=>[row[keyTrain],row[keyVal]]).filter(Number.isFinite);
   const bound = metric === "accuracy"?1:Math.max(.1,...values)*1.05;
-  const x = i => 48 + (epochsHistory.length===1 ? 0 : 605*i/(epochsHistory.length-1));
+  const firstEpoch=epochsHistory[0].epoch,lastEpoch=epochsHistory[epochsHistory.length-1].epoch;
+  const xEpoch=e=>48+(lastEpoch===firstEpoch?0:605*(e-firstEpoch)/(lastEpoch-firstEpoch));
+  const x=i=>xEpoch(epochsHistory[i].epoch);
   const y = n => 195 - 167*(Math.max(0,Math.min(bound,Number(n)||0))/bound);
   const shape = (tag,attrs,text) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg",tag);
@@ -148,11 +151,20 @@ function drawChart() {
   const points = key => epochsHistory.map((item,i)=>x(i)+","+y(item[key])).join(" ");
   shape("polyline",{points:points(keyTrain),stroke:palette.train,fill:"none","stroke-width":2.5});
   shape("polyline",{points:points(keyVal),stroke:palette.validation,fill:"none","stroke-width":2.5});
+  if(selectedEpoch!==null && selectedEpoch>=firstEpoch && selectedEpoch<=lastEpoch) {
+    const px=xEpoch(selectedEpoch);
+    shape("line",{x1:px,x2:px,y1:28,y2:195,stroke:"#475569","stroke-width":1.5,"stroke-dasharray":"4 4"});
+    shape("text",{x:Math.max(65,Math.min(590,px+7)),y:17,fill:"#334155","font-size":11},"Kept epoch "+selectedEpoch);
+    const best=epochsHistory.find(row=>row.epoch===selectedEpoch);
+    if(best)shape("circle",{cx:px,cy:y(best[keyVal]),r:4,fill:palette.validation,stroke:"#fff","stroke-width":1.5});
+  }
   shape("text",{x:48,y:216,"font-size":11,fill:"#64748b"},"Epoch "+epochsHistory[0].epoch);
   shape("text",{x:653,y:216,"font-size":11,fill:"#64748b","text-anchor":"end"},"Epoch "+epochsHistory[epochsHistory.length-1].epoch);
   host.appendChild(svg);
-  const legend = addNode(host,"p",{class:"mt-1 text-xs text-slate-600",text:"● Training     ● Validation"});
-  legend.style.whiteSpace="pre";
+  const legend=addNode(host,"div",{class:"mt-1 flex flex-wrap gap-4 text-xs text-slate-600"});
+  const trainLegend=addNode(legend,"span",{text:"● Training"});trainLegend.style.color=palette.train;
+  const valLegend=addNode(legend,"span",{text:"● Validation"});valLegend.style.color=palette.validation;
+  if(selectedEpoch!==null)addNode(legend,"span",{text:"Dashed line = saved model (epoch "+selectedEpoch+")"});
 }
 
 function validateSample(data) {
@@ -172,7 +184,8 @@ function loadSample(data) {
   E("speechCount").textContent = info.speeches.toLocaleString();
   E("speakerCount").textContent = info.mps.toLocaleString();
   const counts = labels.map(party=>data.examples.filter(x=>x.party===party).length);
-  E("dataStatus").textContent = "Ready: " + counts[0] + " Labour and " + counts[1] + " Conservative speeches.";
+  E("dataStatus").textContent = "Ready: "+counts[0]+" Labour and "+counts[1]+" Conservative speeches."+
+    (info.speeches>5200?" Expanded sample; the overfitting demo retains its original data.":"");
   textStatus("Choose an architecture and train. The split will keep MPs out of multiple sets.");
   setBusy(false);
 }
@@ -207,7 +220,7 @@ async function train() {
     const vocab = engine.buildVocabulary(parts.train, Number(E("vocabulary").value));
     // Each feature and the IDF weight are learned from training speakers only.
     const tensorPair = rows => {
-      const input = tf.tensor2d(engine.encodeRows(rows, vocab));
+      const input = tf.tensor2d(engine.encodeRows(rows, vocab),[rows.length,vocab.words.length]);
       const output = tf.tensor2d(rows.map(row=>labels.map(party=>Number(row.party === party))));
       tensors.push(input,output);
       return [input,output];
@@ -264,6 +277,8 @@ async function train() {
       }}
     });
     if(bestWeights) created.setWeights(bestWeights);
+    selectedEpoch=bestEpoch||null;
+    drawChart();
     } finally {
       if(bestWeights) bestWeights.forEach(w=>w.dispose());
     }
@@ -313,7 +328,7 @@ async function train() {
     textStatus((stoppedEarly
       ? "Stopped after "+lastPoint.epoch+" of "+epochs+" epochs because validation loss stopped improving."
       : "Completed all "+epochs+" requested epochs.")+
-      (bestEpoch ? " Kept the model from epoch "+bestEpoch+" (best validation loss)." : "")+
+      (bestEpoch ? " Restored epoch "+bestEpoch+" (lowest validation loss). The cards show that saved model; the graph shows all epochs." : "")+
       " Test MPs were not present in training or validation.");
     E("randomSpeech").disabled=false;
     E("predict").disabled=false;
