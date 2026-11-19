@@ -146,6 +146,16 @@ function Curve({ points, kind }) {
 const fieldStyle = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 focus:ring-2 focus:ring-teal-600 focus:outline-none';
 const panelStyle = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
 const mainButton = 'rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-40';
+function Explanation({ title, children }) {
+  return (
+    <details className="group mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+      <summary className="cursor-pointer select-none font-medium text-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">
+        {title}
+      </summary>
+      <div className="mt-2 space-y-2 leading-relaxed text-slate-700">{children}</div>
+    </details>
+  );
+}
 function App() {
   const [csv, setCsv] = useState(null);
   const [columns, setColumns] = useState([]);
@@ -296,16 +306,28 @@ function App() {
           <p className="text-sm font-bold tracking-widest uppercase text-teal-700">Machine learning · classroom lab</p>
           <h1 className="mt-2 text-4xl font-bold tracking-tight">Neural Network Lab</h1>
           <p className="mt-3 text-slate-600 max-w-3xl">Design, train and test an artificial neural network. Compare different numbers of layers, neurons and activation functions using your own CSV data.</p>
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">A neural network learns relationships between examples and their known answers, then tries to classify new examples. Start with the default settings and change one thing at a time.</p>
+          <div className="max-w-3xl">
+            <Explanation title="What kind of AI is this?">
+              <p>This is <strong>supervised machine learning</strong>: the CSV supplies examples with correct labels, and the network adjusts its connections to make predictions that match those labels.</p>
+              <p>It is a <strong>feedforward neural network</strong> (a multilayer perceptron). Information moves from the input features, through hidden layers, to a classification output. The model learns from data rather than using manually written classification rules.</p>
+            </Explanation>
+          </div>
         </header>
         <div className="grid gap-5 lg:grid-cols-3">
           <section className={panelStyle}>
             <h2 className="text-xl font-bold">1. Choose your data</h2>
-            <p className="text-sm text-slate-500 mt-1">Upload a CSV with column headers.</p>
+            <p className="text-sm text-slate-500 mt-1">Upload a CSV with column headers. Each row is an example; each column describes it.</p>
+            <Explanation title="What should my CSV contain?">
+              <p>Choose data with a <strong>category to predict</strong> and several useful input columns. For banknotes, the inputs could be image measurements and the target could be genuine/forged. For mushrooms, inputs could describe physical features and the target could be edible/poisonous.</p>
+              <p>The target must contain at least two classes, with at least five complete examples of each. Rows missing a selected input or target are omitted. More representative data usually produces more reliable results.</p>
+            </Explanation>
             <input type="file" accept=".csv" disabled={busy} onChange={upload} aria-label="Upload a CSV file"
               className="mt-4 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:font-medium file:text-teal-800"/>
             {csv && <p className="mt-3 text-sm text-slate-600">{csv.length.toLocaleString()} rows · {columns.length} columns</p>}
             {columns.length > 0 && <>
               <label className="block mt-5 font-semibold" htmlFor="target">Target to predict</label>
+              <p className="mt-1 text-xs text-slate-600">The answer the network will learn to predict (also called the label or class).</p>
               <select id="target" value={label} disabled={busy} className={fieldStyle + ' mt-2'}
                 onChange={e => { reset(); setLabel(e.target.value); setFeatures(prev => prev.filter(f => f !== e.target.value)); }}>
                 <option value="">Choose a target column</option>
@@ -314,7 +336,11 @@ function App() {
               <div className="mt-5 flex items-center justify-between">
                 <h3 className="font-semibold">Input features</h3><span className="text-xs text-slate-500">{features.length} selected</span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">Avoid IDs and columns that give away the answer.</p>
+              <p className="text-xs text-slate-600 mt-1">Features are the clues the network uses to make a prediction. Select measurements or categories that could genuinely help.</p>
+              <Explanation title="Which features should I choose?">
+                <p>For banknotes, try numerical measurements such as variance, skewness, curtosis and entropy. For mushrooms, try cap shape, colour, odour and gill size.</p>
+                <p>Avoid unique IDs, names and anything that <strong>reveals the answer directly</strong> (data leakage). For example, when predicting Titanic survival, do not select an <em>alive</em> column as an input. Try using fewer features, then compare the results.</p>
+              </Explanation>
               <div className="mt-2 p-3 space-y-2 max-h-72 overflow-y-auto rounded-lg border border-slate-200">
                 {columns.filter(name => name !== label).map(name =>
                   <label key={name} className="flex items-start gap-2 text-sm">
@@ -329,7 +355,9 @@ function App() {
           <section className={panelStyle + ' lg:col-span-2'}>
             <div className="flex flex-wrap justify-between gap-3">
               <div><h2 className="text-xl font-bold">2. Build your network</h2>
-                <p className="mt-1 text-sm text-slate-500">Start with the original 10-neuron network, or add hidden layers.</p></div>
+                <p className="mt-1 text-sm text-slate-500">Start with the original 10-neuron network, or add hidden layers.</p>
+                <p className="mt-2 text-sm text-slate-600">A neuron combines the inputs it receives, applies an activation function, then passes a value onwards. Training changes the strengths of its connections (weights).</p>
+                </div>
               <span className="self-start rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-800">
                 {layers.reduce((sum, n) => sum + n, 0)} hidden neurons
               </span>
@@ -341,15 +369,36 @@ function App() {
                   onChange={e => { reset(); setActivation(e.target.value); }}>
                   <option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option><option value="tanh">Tanh</option>
                 </select>
+                <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                  {activation === 'relu' && 'ReLU passes positive signals through and turns negative signals into zero. Fast and a good default for most datasets.'}
+                  {activation === 'sigmoid' && 'Sigmoid squeezes values between 0 and 1. It is smooth but can learn slowly when signals become very large or small.'}
+                  {activation === 'tanh' && 'Tanh squeezes values between -1 and +1. It preserves negative signals but can also suffer from slow learning at extremes.'}
+                </p>
+                <Explanation title="Compare ReLU, sigmoid and tanh">
+                  <p>An <strong>activation function</strong> determines how a neuron responds. Without nonlinear activations, adding hidden layers would not let the network learn more complex patterns.</p>
+                  <p><strong>ReLU:</strong> max(0, x). For input -2 it outputs 0; for +2 it outputs 2. Usually a sensible starting point, although some neurons may become stuck at zero.</p>
+                  <p><strong>Sigmoid:</strong> produces values from 0 to 1. For input 0 it outputs 0.5. It can suffer from vanishing gradients, slowing training.</p>
+                  <p><strong>Tanh:</strong> produces values from -1 to +1. For input 0 it outputs 0. Its values are centred on zero, but it can also have vanishing gradients.</p>
+                  <p>These choices change the <strong>hidden layers</strong>. The final output uses <strong>softmax</strong> regardless: it produces class scores that sum to 100%.</p>
+                </Explanation>
               </div>
               <div>
                 <label className="text-sm font-semibold" htmlFor="epochs">Training epochs</label>
                 <input id="epochs" type="number" min="1" max="10000" step="1" disabled={busy} value={epochs}
                   className={fieldStyle + ' mt-2'} onChange={e => { reset(); setEpochs(e.target.value); }}/>
-                <p className="text-xs text-slate-500 mt-1">1 to 10,000 · default 150</p>
+                <p className="mt-1 text-xs text-slate-600">One epoch means the network has worked through the training examples once. Default: 150.</p>
+                <Explanation title="Do more epochs always help?">
+                  <p>No. Each epoch gives the network another chance to adjust its weights using <strong>backpropagation</strong> and the Adam optimiser. More epochs can improve learning, but too many can make it memorise training examples rather than generalise.</p>
+                  <p>Compare 20, 150 and 500 epochs using the same data and network. Watch the validation curve: if training improves while validation gets worse, that may be <strong>overfitting</strong>.</p>
+                </Explanation>
               </div>
             </div>
             <h3 className="font-semibold mt-5">Hidden layers</h3>
+            <p className="mt-1 text-sm text-slate-600">Hidden layers sit between the input and output. Additional layers let the network build more complex combinations of features; they do not automatically improve accuracy.</p>
+            <Explanation title="What is the difference between more layers and more neurons?">
+              <p><strong>More layers (depth)</strong> allow successive transformations: a later layer can combine patterns found by earlier layers. <strong>More neurons (width)</strong> give a layer greater capacity to detect different patterns.</p>
+              <p>For small tabular datasets, one or two hidden layers may be enough. Larger networks use more memory and training time and may <strong>overfit</strong> limited datasets. Compare a small 10-neuron network with 32 → 16 and 64 → 32 → 16, keeping the data and epochs the same.</p>
+            </Explanation>
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               {layers.map((units, i) =>
                 <div key={i} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3">
@@ -368,14 +417,30 @@ function App() {
               className="mt-3 rounded-lg border border-teal-700 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-40">
               + Add hidden layer
             </button>
-            <div className="mt-5"><Architecture layers={layers} inputs={metrics ? metrics.inputs : features.length || 4} outputs={metrics ? metrics.outputs : 2}/></div>
-            <p className="mt-3 text-xs text-slate-500">Numeric features are standardised using training data only. Text features use one-hot encoding. The output layer adjusts automatically.</p>
+            <div className="mt-5">
+              <h3 className="mb-2 font-semibold">Network architecture preview</h3>
+              <Architecture layers={layers} inputs={metrics ? metrics.inputs : features.length || 4} outputs={metrics ? metrics.outputs : 2}/>
+              <p className="mt-2 text-xs leading-relaxed text-slate-600">Left: input features. Middle: the hidden layers you selected. Right: output classes. Lines represent connections with trainable weights, not paths chosen manually.</p>
+              <Explanation title="Why might the input and output counts change?">
+                <p>Each numerical feature supplies one input. A text feature is converted to several one-hot inputs, one for each known category; this is why the total input count may be higher than the number of selected columns.</p>
+                <p>The output layer has one neuron for each category in the target. Its <strong>softmax</strong> function gives a relative score for each class. Before training, the diagram shows illustrative input and output counts.</p>
+              </Explanation>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-slate-600">Before training, numerical values are standardised and text categories are one-hot encoded. This makes the inputs easier for the network to learn from.</p>
+            <Explanation title="What happens to the data before training?">
+              <p><strong>Standardisation</strong> rescales numerical inputs using the training set mean and standard deviation, so a large-number column does not dominate just because of its units.</p>
+              <p><strong>One-hot encoding</strong> converts a text category such as red/blue into separate 0/1 inputs. The mean, standard deviation and category vocabulary are learned from training rows only, not from validation or test rows. Unknown test categories are encoded as all zeros.</p>
+            </Explanation>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button type="button" className={mainButton} disabled={busy || !csv || !label || !features.length} onClick={train}>
                 {busy ? 'Training…' : 'Train network'}
               </button>
-              <span className="text-xs text-slate-500">Stratified 70/15/15 train / validation / test split</span>
+              <span className="text-xs text-slate-600">Roughly 70% training · 15% validation · 15% testing</span>
             </div>
+            <Explanation title="What happens when I press Train network?">
+              <p>The lab separates examples into three groups while preserving class proportions. <strong>Training</strong> rows update the network's weights. <strong>Validation</strong> rows are checked after each epoch to see how learning generalises. <strong>Test</strong> rows are held back until the end for one final evaluation.</p>
+              <p>The split is repeatable, but the initial neural-network weights and training process can still make results vary between runs. Change one setting at a time when comparing experiments.</p>
+            </Explanation>
             <p className="mt-4 text-sm" role="status" aria-live="polite">{status}</p>
           </section>
         </div>
@@ -383,7 +448,11 @@ function App() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">3. Learning curves</h2>
-              <p className="text-sm text-slate-500 mt-1">Compare training and validation. A growing gap can indicate overfitting.</p>
+              <p className="text-sm text-slate-600 mt-1">The curves show how the model changed during training. Ideally, training and validation both improve rather than moving apart.</p>
+              <Explanation title="How do I read the accuracy and loss graphs?">
+                <p><strong>Accuracy</strong> is the proportion of examples classified correctly. Higher is better. <strong>Loss</strong> measures how wrong the predictions are, including how confident the model was when wrong. Lower is better.</p>
+                <p>Compare the <strong>training</strong> curve (examples the network learns from) with the <strong>validation</strong> curve (examples it does not train on). If training improves but validation worsens, it may be overfitting. If neither improves, the network may be underfitting or the features may not be informative.</p>
+              </Explanation>
             </div>
             <div className="flex gap-2" role="group" aria-label="Chart mode">
               {['accuracy','loss'].map(kind =>
@@ -398,24 +467,33 @@ function App() {
           {metrics && <>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {[
-                ['Training accuracy',metrics.train,metrics.sizes[0]],
-                ['Validation accuracy',metrics.validation,metrics.sizes[1]],
-                ['Unseen test accuracy',metrics.test,metrics.sizes[2]]
-              ].map(([name, value, size]) =>
+                ['Training accuracy',metrics.train,metrics.sizes[0], 'Correct predictions on examples used to update the model.'],
+                ['Validation accuracy',metrics.validation,metrics.sizes[1], 'Accuracy on separate examples checked during training.'],
+                ['Unseen test accuracy',metrics.test,metrics.sizes[2], 'Final check using examples kept out of training and validation.']
+              ].map(([name, value, size, help]) =>
                 <div key={name} className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">{name}</p>
+                  <p className="text-sm font-medium text-slate-600">{name}</p>
                   <p className="text-3xl font-bold mt-1">{(value*100).toFixed(1)}%</p>
                   <p className="text-xs text-slate-500 mt-1">{size} rows</p>
+                  <p className="mt-2 text-xs leading-relaxed text-slate-600">{help}</p>
                 </div>
               )}
             </div>
             <p className="mt-3 text-sm text-slate-600">{metrics.skipped ? metrics.skipped + ' incomplete rows were omitted. ' : ''}
               The test examples were not used for training or validation. The data split is repeatable for fair comparisons.</p>
+            <Explanation title="Which accuracy should I trust?">
+              <p><strong>Training accuracy</strong> is usually optimistic because the model already saw those examples. <strong>Validation accuracy</strong> helps compare settings during development. <strong>Test accuracy</strong> estimates performance on unseen data, but should be used sparingly: repeatedly choosing settings based on test results can also bias your conclusions.</p>
+              <p>A small test set or an imbalanced dataset can make accuracy misleading. For classroom work, compare the three scores and think about class balance, errors and the size of each dataset.</p>
+            </Explanation>
           </>}
         </section>}
         {model && !busy && <section className={panelStyle + ' mt-6'}>
           <h2 className="text-xl font-bold">4. Try a new prediction</h2>
-          <p className="mt-1 text-sm text-slate-500">Enter numbers or known text categories from the CSV.</p>
+          <p className="mt-1 text-sm text-slate-600">Type a new example using the same measurements or categories as the training CSV. The trained model predicts a class without retraining.</p>
+          <Explanation title="What does a prediction mean?">
+            <p>Each input box corresponds to one selected feature. Use numerical values in their original units: the lab automatically applies the same standardisation as during training. Text values must match a category from the training data.</p>
+            <p>The predicted class has the highest <strong>softmax score</strong>. A score of 95% does not necessarily mean the model is correct 95% of the time; these scores are not calibrated probabilities. A model can make confident mistakes.</p>
+          </Explanation>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {schema.map((feature, i) =>
               <div key={feature.name}>
@@ -437,6 +515,10 @@ function App() {
           <p className="mt-2 text-xs text-slate-500">Model scores are not calibrated probabilities. Classroom predictions should not guide safety-critical decisions.</p>
           <button type="button" className="mt-5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-50"
             onClick={exportModel}>Export model and preprocessing metadata</button>
+          <Explanation title="What do the exported files contain?">
+            <p>The export downloads a TensorFlow.js model structure, its learned weights, and a separate JSON file describing input columns, text categories and numerical scaling values. All three files are needed to interpret new inputs correctly outside this page.</p>
+            <p>Export saves your trained model; it does not save or publish the uploaded CSV.</p>
+          </Explanation>
         </section>}
         <footer className="py-8 text-sm text-slate-500">Runs in your browser using TensorFlow.js · Your CSV stays on your device · Bigger networks may train slowly</footer>
       </main>
