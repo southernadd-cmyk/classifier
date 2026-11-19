@@ -90,6 +90,19 @@
       return [term,count,score];
     }).filter(([,count])=>count>=8 && count<=n*.85)
       .sort((a,b)=>b[2]-a[2] || b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,limit);
+    // Tiny demonstration datasets may have few discriminating features;
+    // fill remaining slots with frequent terms rather than failing the lesson.
+    if(sorted.length < Math.min(20,limit)) {
+      const present=new Set(sorted.map(row=>row[0]));
+      const fallback=[...df.entries()]
+        .map(([term,counts])=>[term,counts.Labour+counts.Conservative,0])
+        .filter(([,count])=>count>=2)
+        .sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
+      for(const row of fallback) {
+        if(sorted.length >= Math.min(20,limit)) break;
+        if(!present.has(row[0])) {sorted.push(row);present.add(row[0]);}
+      }
+    }
     if (sorted.length < 20) throw new Error("Too little meaningful speech text to build the vocabulary.");
     return { words: sorted.map(([term]) => term),
       idf: sorted.map(([, freq]) => Math.log((1 + n) / (1 + freq)) + 1),
