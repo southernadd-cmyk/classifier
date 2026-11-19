@@ -214,6 +214,28 @@
     const p=1/(1+Math.exp(-Math.max(-50,Math.min(50,logOdds))));
     return {label:p>=.5?"Labour":"Conservative",scores:[p,1-p],matchedTerms};
   }
+  // Evaluate an unseen person by averaging evidence across their speeches.
+  // This is MP-level classification, not single-speech accuracy.
+  function evaluateNaiveBayesSpeakers(rows,fitted) {
+    const grouped=new Map();
+    for(const row of rows){
+      if(!grouped.has(row.mp)) grouped.set(row.mp,[]);
+      grouped.get(row.mp).push(row);
+    }
+    const predictions=[];
+    for(const [mp,speeches] of grouped){
+      const labourCount=speeches.filter(row=>row.party==="Labour").length;
+      const party=labourCount >= speeches.length-labourCount ? "Labour" : "Conservative";
+      const averageLabourScore=speeches.reduce((sum,row)=>
+        sum+predictNaiveBayes(fitted,row.text).scores[0],0)/speeches.length;
+      const predicted=averageLabourScore>=.5?"Labour":"Conservative";
+      predictions.push({mp,party,predicted,speechCount:speeches.length,
+        averageLabourScore,correct:party===predicted});
+    }
+    const correct=predictions.filter(x=>x.correct).length;
+    return {correct,total:predictions.length,
+      accuracy:correct/predictions.length,predictions};
+  }
   const indexCache=new WeakMap();
   function vocabularyIndex(vocab) {
     if(!indexCache.has(vocab))
@@ -251,5 +273,5 @@
   }
   return { tokenize, featureTokens, splitBySpeaker, isSubstantialSpeech, chooseTrainingSpeeches,
     evaluatePredictions, buildVocabulary, makeVector, encodeRows, modelInputsFromText, seededRandom,
-    bayesFeatureTokens,trainNaiveBayes,predictNaiveBayes };
+    bayesFeatureTokens,trainNaiveBayes,predictNaiveBayes,evaluateNaiveBayesSpeakers };
 });
