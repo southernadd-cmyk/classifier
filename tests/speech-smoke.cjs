@@ -107,6 +107,13 @@ const prediction=engine.predictNaiveBayes(bayes,"public service and transport po
 assert.ok(["Labour","Conservative"].includes(prediction.label),"Naive Bayes predicts a party");
 assert.equal(prediction.scores.length,2,"Naive Bayes compares both classes");
 assert.ok(Math.abs(prediction.scores[0]+prediction.scores[1]-1)<1e-10);
+const mpSummary=engine.evaluateNaiveBayesSpeakers(first.validation,bayes);
+assert.equal(mpSummary.total,new Set(first.validation.map(r=>r.mp)).size,
+  "each MP contributes one grouped prediction");
+assert.equal(mpSummary.predictions.reduce((n,r)=>n+r.speechCount,0),first.validation.length,
+  "all held-out speeches contribute to their MP");
+assert.match(html,/id="speakerAccuracy"/,"MP accuracy appears separately");
+assert.match(html,/MP-level accuracy/,"don't mislabel group accuracy as per-speech");
 assert.match(fs.readFileSync("speech-lab-overfitting-ui.js","utf8"),/commons-speech-original\.json/,"original uses frozen data");
 assert.match(html, /speech-lab-overfitting\.html/);
 const oldHtml=fs.readFileSync("speech-lab-overfitting.html","utf8");
