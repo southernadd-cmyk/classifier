@@ -12,3 +12,7 @@ jobs:
           node-version: '22'
       - run: npm install --no-save --no-package-lock @babel/parser
       - run: node tests/smoke.cjs
+      - run: node tests/speech-smoke.cjs
+      - run: node --check speech-lab-ui.js
+      - run: node --check speech-engine.js
+      - run: python -m unittest discover -s tests -p 'test_prepare_commons.py'

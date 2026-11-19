@@ -1,0 +1,45 @@
+name: Prepare CommonsSpeech teaching dataset
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/prepare_commons_speech.py'
+      - '.github/workflows/prepare-commons-speech.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download CommonsSpeech and create balanced small sample
+        run: python scripts/prepare_commons_speech.py --out data/commons-speech-sample.json
+      - name: Verify prepared sample
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          d = json.loads(Path('data/commons-speech-sample.json').read_text())
+          c = Counter(x['party'] for x in d['examples'])
+          print('Classes:', c, 'MPs:', d['speakers'])
+          assert set(c) == {'Labour', 'Conservative'} and min(c.values()) >= 100
+          assert min(d['speakers'].values()) >= 8
+          assert Path('data/commons-speech-sample.json').stat().st_size < 15_000_000
+          PY
+      - name: Commit only compact teaching sample
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/commons-speech-sample.json
+          if ! git diff --cached --quiet; then
+            git commit -m "data: publish balanced CommonsSpeech teaching sample"
+            git push
+          fi
