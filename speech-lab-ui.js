@@ -36,6 +36,7 @@ const setBusy = value => {
   E("addLayer").disabled = value || layers.length >= 4;
   E("activation").disabled = value;
   E("epochs").disabled = value;
+  E("earlyStop").disabled = value;
   E("vocabulary").disabled = value;
   E("localData").disabled = value;
   E("randomSpeech").disabled = value || !model;
@@ -190,6 +191,7 @@ async function initialiseData() {
 async function train() {
   if(busy || !sample) return;
   const epochs = Number(E("epochs").value);
+  const stopEarly = E("earlyStop").checked;
   if (!Number.isSafeInteger(epochs) || epochs < 1 || epochs > 1000) {
     textStatus("Enter a whole number of epochs between 1 and 1,000.");
     return;
@@ -227,7 +229,7 @@ async function train() {
     created.add(tf.layers.dense({units:2,activation:"softmax"}));
     created.compile({optimizer:tf.train.adam(.001),loss:"categoricalCrossentropy",metrics:["accuracy"]});
     const interval = Math.max(1,Math.ceil(epochs / 120));
-    let bestLoss=Infinity,bestWeights=null,staleEpochs=0,stoppedEarly=false;
+    let bestLoss=Infinity,bestWeights=null,bestEpoch=0,staleEpochs=0,stoppedEarly=false;
     try {
     await created.fit(trainX,trainY,{
       batchSize:32, epochs, shuffle:true,
@@ -247,11 +249,17 @@ async function train() {
         }
         if(Number.isFinite(lastPoint.valLoss) && lastPoint.valLoss < bestLoss-.001) {
           bestLoss=lastPoint.valLoss;
+          bestEpoch=epoch+1;
           if(bestWeights) bestWeights.forEach(w=>w.dispose());
           bestWeights=created.getWeights().map(w=>w.clone());
           staleEpochs=0;
-        } else if(++staleEpochs >= 5) {
-          stoppedEarly=true; created.stopTraining=true;
+        } else {
+          staleEpochs++;
+          // Only stop if explicitly enabled; give the model at least 12 epochs.
+          if(stopEarly && epoch+1 >= 12 && staleEpochs >= 6) {
+            stoppedEarly=true;
+            created.stopTraining=true;
+          }
         }
       }}
     });
@@ -292,14 +300,21 @@ async function train() {
     E("validationAccuracy").textContent=formatPercent((await valT[1].data())[0]);
     [...trainT,...valT].forEach(t=>t.dispose());
     E("testAccuracy").textContent = formatPercent(testAcc);
-    const baseline = Math.max(...labels.map(party => parts.test.filter(x => x.party === party).length)) / parts.test.length;
+    // Choose the majority-party baseline from training data only, never from the test labels.
+    const trainingCounts=labels.map(party=>parts.train.filter(x=>x.party===party).length);
+    const majorityParty=labels[trainingCounts[1]>trainingCounts[0]?1:0];
+    const baseline=parts.test.filter(x=>x.party===majorityParty).length/parts.test.length;
     E("splitInfo").textContent =
       "Speaker-grouped split · "+parts.train.length+" training / "+parts.validation.length+" validation / "+parts.test.length+
-      " unseen test speeches. Guessing baseline: "+formatPercent(baseline)+". "+vocab.words.length+" TF-IDF word and phrase features.";
+      " unseen test speeches. "+vocab.words.length+" TF-IDF word and phrase features.";
     E("baselineInfo").textContent="Neural network: "+formatPercent(testAcc)+
-      " · Logistic regression: "+formatPercent(baselineAccuracy)+" · Guessing: "+formatPercent(baseline)+".";
-    textStatus("Training complete"+(stoppedEarly?" (stopped early to avoid memorising)":"")+
-      ". Test speakers were not present in training or validation.");
+      " · Logistic regression: "+formatPercent(baselineAccuracy)+
+      " · Always predict "+majorityParty+": "+formatPercent(baseline)+".";
+    textStatus((stoppedEarly
+      ? "Stopped after "+lastPoint.epoch+" of "+epochs+" epochs because validation loss stopped improving."
+      : "Completed all "+epochs+" requested epochs.")+
+      (bestEpoch ? " Kept the model from epoch "+bestEpoch+" (best validation loss)." : "")+
+      " Test MPs were not present in training or validation.");
     E("randomSpeech").disabled=false;
     E("predict").disabled=false;
     drawDiagram();
@@ -370,6 +385,7 @@ E("addLayer").addEventListener("click",()=>{if(busy||layers.length>=4)return;lay
 E("activation").addEventListener("change",newConfig);
 E("vocabulary").addEventListener("change",newConfig);
 E("epochs").addEventListener("change",newConfig);
+E("earlyStop").addEventListener("change",newConfig);
 E("train").addEventListener("click",train);
 E("predict").addEventListener("click",predict);
 E("randomSpeech").addEventListener("click",showHeldout);
