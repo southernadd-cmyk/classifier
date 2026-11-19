@@ -71,6 +71,42 @@
     for (let i=0; i<valid.length-1; i++) if(valid[i] && valid[i+1]) terms.push(valid[i]+" "+valid[i+1]);
     return terms;
   }
+  // A simple quality filter for our teaching experiment. It does not label
+  // political opinions: it only checks whether a passage has enough substance.
+  function isSubstantialSpeech(row) {
+    const text=String(row && row.text || "").trim();
+    const words=text.match(/[a-z]+(?:['’][a-z]+)?/gi) || [];
+    if(words.length < 100) return false;
+    if(new Set(tokenize(text)).size < 22) return false;
+    // Exclude recognisable procedural openings, not all speeches mentioning procedure.
+    if(/^(?:i beg to move,?\s*that,?\s*at the sitting\b|the house met at\b|the house proceeded to\b|to ask the secretary of state\b)/i.test(text)) return false;
+    return true;
+  }
+  function chooseTrainingSpeeches(rows, mode="all") {
+    if(mode!=="all" && mode!=="substantial") throw new Error("Unknown speech-quality mode.");
+    return mode==="all" ? rows.slice() : rows.filter(isSubstantialSpeech);
+  }
+  function evaluatePredictions(rows, predictions) {
+    if(rows.length!==predictions.length) throw new Error("Prediction count must match test speeches.");
+    const labels=["Labour","Conservative"];
+    const confusion={Labour:{Labour:0,Conservative:0},Conservative:{Labour:0,Conservative:0}};
+    const decades=new Map();
+    let correct=0;
+    rows.forEach((row,i)=>{
+      const actual=row.party,predicted=predictions[i];
+      if(!labels.includes(actual)||!labels.includes(predicted))throw new Error("Invalid class label in evaluation.");
+      confusion[actual][predicted]++;
+      const good=actual===predicted;
+      if(good)correct++;
+      const year=Number(row.year);
+      const decade=year<1990?"1979–1989":year<2000?"1990–1999":year<2010?"2000–2009":"2010–2019";
+      if(!decades.has(decade))decades.set(decade,{period:decade,total:0,correct:0});
+      const entry=decades.get(decade);
+      entry.total++;if(good)entry.correct++;
+    });
+    return {confusion,total:rows.length,correct,
+      decades:[...decades.values()].sort((a,b)=>a.period.localeCompare(b.period))};
+  }
   function buildVocabulary(trainingDocs,limit=650) {
     // Count the MPs using each term so repeated speeches by one MP don't dominate.
     const speakerTerms=new Map(),docFreq=new Map();
@@ -98,7 +134,7 @@
     const ranked=[...bySpeaker].map(([term,t])=>{
       const a=t.Labour,b=t.Conservative,c=totals.Labour-a,d=totals.Conservative-b;
       const count=a+b,denom=(a+b)*(c+d)*(a+c)*(b+d);
-      return [term,count,denom>0?n*(a*d-b*c)**2/denom:0];
+      return [term,count,denom>0?n*(a*d-b*c)**2/denom:0,a,b];
     }).filter(([,count])=>count>=3 && count<=n*.85)
       .sort((a,b)=>b[2]-a[2]||b[1]-a[1]||a[0].localeCompare(b[0]));
     const selected=ranked.slice(0,limit);
@@ -114,7 +150,10 @@
     if(selected.length<20)throw new Error("Too little meaningful speech text to build the vocabulary.");
     return {words:selected.map(([term])=>term),
       idf:selected.map(([term])=>Math.log((1+nDocs)/(1+docFreq.get(term)))+1),
-      trainDocs:nDocs};
+      trainDocs:nDocs,
+      clues:selected.slice(0,10).map(([term,_,score,labourMPs,conservativeMPs])=>({
+        term,score,labourMPs:labourMPs||0,conservativeMPs:conservativeMPs||0
+      }))};
   }
   const indexCache=new WeakMap();
   function vocabularyIndex(vocab) {
@@ -151,5 +190,6 @@
   function modelInputsFromText(text, vocabulary) {
     return Array.from(makeVector(text, vocabulary));
   }
-  return { tokenize, featureTokens, splitBySpeaker, buildVocabulary, makeVector, encodeRows, modelInputsFromText, seededRandom };
+  return { tokenize, featureTokens, splitBySpeaker, isSubstantialSpeech, chooseTrainingSpeeches,
+    evaluatePredictions, buildVocabulary, makeVector, encodeRows, modelInputsFromText, seededRandom };
 });

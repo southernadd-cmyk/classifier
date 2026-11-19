@@ -39,6 +39,7 @@ const setBusy = value => {
   E("epochs").disabled = value;
   E("earlyStop").disabled = value;
   E("vocabulary").disabled = value;
+  E("trainingSet").disabled = value;
   E("localData").disabled = value;
   E("randomSpeech").disabled = value || !model;
   E("predict").disabled = value || !model;
@@ -52,6 +53,8 @@ function resetModel() {
   ["trainAccuracy","validationAccuracy","testAccuracy"].forEach(id => E(id).textContent = "—");
   E("splitInfo").textContent = "A majority-class baseline is useful for checking whether the network is actually learning.";
   E("baselineInfo").textContent = "Train both models to see how they perform on new MPs.";
+  E("evaluationReport").replaceChildren();
+  E("vocabularyReport").replaceChildren();
   E("chartArea").innerHTML = '<p class="py-20 text-center text-sm text-slate-400">Train a network to display its learning curves.</p>';
   E("predictionResult").replaceChildren();
   E("selectedSpeechMeta").textContent = "";
@@ -167,6 +170,50 @@ function drawChart() {
   if(selectedEpoch!==null)addNode(legend,"span",{text:"Dashed line = saved model (epoch "+selectedEpoch+")"});
 }
 
+function showVocabularyClues(vocab) {
+  const host=E("vocabularyReport");host.replaceChildren();
+  addNode(host,"h4",{class:"font-semibold text-sm",text:"Which word clues did the model select?"});
+  addNode(host,"p",{class:"mt-1 mb-3 text-xs text-slate-600",
+    text:"These counts show how many different training MPs used each term. They are correlations, not political opinions or proof of why the model predicts a party."});
+  const table=addNode(host,"table",{class:"w-full text-sm text-left"});
+  const head=addNode(table,"thead");
+  const h=addNode(head,"tr",{class:"border-b border-slate-200 text-xs text-slate-500"});
+  ["Word or phrase","Labour MPs","Conservative MPs"].forEach(x=>addNode(h,"th",{class:"py-2 pr-2",text:x}));
+  const body=addNode(table,"tbody");
+  for(const clue of vocab.clues || []) {
+    const tr=addNode(body,"tr",{class:"border-b border-slate-100"});
+    [clue.term,String(clue.labourMPs),String(clue.conservativeMPs)].forEach(
+      (v,i)=>addNode(tr,"td",{class:"py-2 pr-2"+(i===0?" font-medium":""),text:v}));
+  }
+}
+function showEvaluation(rows, predictions) {
+  const stats=engine.evaluatePredictions(rows,predictions);
+  const host=E("evaluationReport");host.replaceChildren();
+  addNode(host,"h4",{class:"font-semibold text-base",text:"Where does the model make mistakes?"});
+  addNode(host,"p",{class:"mt-1 text-xs text-slate-600",
+    text:"Unseen test speeches only. Each row is the MP's actual party; each column is the prediction. Use validation results, not repeated test scores, to select settings."});
+  const table=addNode(host,"table",{class:"w-full mt-3 text-sm text-left"});
+  const head=addNode(table,"thead"),h=addNode(head,"tr",{class:"border-b border-slate-200"});
+  ["Actual ↓ / Predicted →","Labour","Conservative"].forEach(v=>addNode(h,"th",{class:"py-2 pr-2",text:v}));
+  const body=addNode(table,"tbody");
+  for(const party of labels) {
+    const tr=addNode(body,"tr",{class:"border-b border-slate-100"});
+    addNode(tr,"th",{class:"py-2 pr-2 font-semibold",text:party});
+    for(const predicted of labels) addNode(tr,"td",{class:"py-2 pr-2",text:String(stats.confusion[party][predicted])});
+  }
+  addNode(host,"h4",{class:"font-semibold text-sm mt-5",text:"Accuracy by decade"});
+  addNode(host,"p",{class:"text-xs text-slate-600 mt-1",
+    text:"Speeches from different periods may use different language. Small groups are less reliable."});
+  const dt=addNode(host,"table",{class:"w-full text-sm text-left mt-2"});
+  const dh=addNode(dt,"thead"),dr=addNode(dh,"tr",{class:"border-b border-slate-200"});
+  ["Period","Test speeches","Accuracy"].forEach(v=>addNode(dr,"th",{class:"py-2 pr-2",text:v}));
+  const db=addNode(dt,"tbody");
+  for(const decade of stats.decades) {
+    const tr=addNode(db,"tr",{class:"border-b border-slate-100"});
+    [decade.period,String(decade.total),formatPercent(decade.correct/decade.total)].forEach(
+      v=>addNode(tr,"td",{class:"py-2 pr-2",text:v}));
+  }
+}
 function validateSample(data) {
   if (!data || !Array.isArray(data.examples)) throw new Error("The file must contain a prepared CommonsSpeech examples array.");
   if (data.examples.length < 100) throw new Error("The sample is too small for this classroom lab.");
@@ -216,8 +263,15 @@ async function train() {
   try {
     textStatus("Preparing speaker-grouped train, validation and test sets…");
     await tf.ready();
-    const parts = engine.splitBySpeaker(sample.examples);
+    const heldOutParts = engine.splitBySpeaker(sample.examples);
+    const originalTrainingCount = heldOutParts.train.length;
+    const qualityMode=E("trainingSet").value;
+    const chosenTrain=engine.chooseTrainingSpeeches(heldOutParts.train,qualityMode);
+    const parts={...heldOutParts,train:chosenTrain};
+    if(parts.train.length<200 || labels.some(party=>parts.train.filter(row=>row.party===party).length<80))
+      throw new Error("Not enough speeches from both parties after filtering. Choose All speeches.");
     const vocab = engine.buildVocabulary(parts.train, Number(E("vocabulary").value));
+    showVocabularyClues(vocab);
     // Each feature and the IDF weight are learned from training speakers only.
     const tensorPair = rows => {
       const input = tf.tensor2d(engine.encodeRows(rows, vocab),[rows.length,vocab.words.length]);
@@ -298,6 +352,13 @@ async function train() {
       baselineTensors.forEach(t=>t.dispose());
     } finally {linear.dispose();}
     textStatus("Evaluating held-out MPs…");
+    // Predict once for the confusion matrix and decade breakdown.
+    const predictedTensor=created.predict(testX);
+    try {
+      const scores=await predictedTensor.data();
+      const guessed=parts.test.map((_,i)=>labels[scores[i*2]>=scores[i*2+1]?0:1]);
+      showEvaluation(parts.test,guessed);
+    } finally { predictedTensor.dispose(); }
     const result = created.evaluate(testX,testY);
     const outputs = Array.isArray(result)?result:[result];
     const testAcc = (await outputs[1].data())[0];
@@ -321,7 +382,9 @@ async function train() {
     const baseline=parts.test.filter(x=>x.party===majorityParty).length/parts.test.length;
     E("splitInfo").textContent =
       "Speaker-grouped split · "+parts.train.length+" training / "+parts.validation.length+" validation / "+parts.test.length+
-      " unseen test speeches. "+vocab.words.length+" TF-IDF word and phrase features.";
+      " unseen test speeches. "+vocab.words.length+" TF-IDF word and phrase features."+
+      (qualityMode==="substantial"?" Filter kept "+parts.train.length+" of "+originalTrainingCount+
+      " training speeches; validation and test sets are unchanged.":" All eligible training speeches used.");
     E("baselineInfo").textContent="Neural network: "+formatPercent(testAcc)+
       " · Logistic regression: "+formatPercent(baselineAccuracy)+
       " · Always predict "+majorityParty+": "+formatPercent(baseline)+".";
@@ -399,6 +462,7 @@ function showHeldout() {
 E("addLayer").addEventListener("click",()=>{if(busy||layers.length>=4)return;layers.push(16);layersUI();newConfig();});
 E("activation").addEventListener("change",newConfig);
 E("vocabulary").addEventListener("change",newConfig);
+E("trainingSet").addEventListener("change",newConfig);
 E("epochs").addEventListener("change",newConfig);
 E("earlyStop").addEventListener("change",newConfig);
 E("train").addEventListener("click",train);

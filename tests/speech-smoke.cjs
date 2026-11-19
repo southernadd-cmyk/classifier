@@ -38,6 +38,23 @@ assert.ok(!engine.featureTokens("public and private").includes("public private")
 const compact=engine.encodeRows(first.train.slice(0,3),vocab);
 assert.ok(compact instanceof Float32Array,"compact training matrix");
 assert.equal(compact.length,3*vocab.words.length);
+assert.equal(engine.isSubstantialSpeech({text:"A brief question."}),false,"short speech removed");
+const longText=("Housing education health transport communities investment public services jobs and local government. ").repeat(18);
+assert.equal(engine.isSubstantialSpeech({text:longText}),true,"substantial speech kept");
+assert.equal(engine.isSubstantialSpeech({text:"I beg to move, That, at the sitting "+longText}),false,"procedural motion removed");
+assert.equal(engine.chooseTrainingSpeeches([{text:"A brief question."},{text:longText}],"substantial").length,1);
+assert.equal(engine.chooseTrainingSpeeches([{text:"A brief question."},{text:longText}],"all").length,2);
+assert.throws(()=>engine.chooseTrainingSpeeches([],"invalid"),/quality mode/);
+const diag=engine.evaluatePredictions([
+ {party:"Labour",year:1982},{party:"Conservative",year:1984},
+ {party:"Conservative",year:2008},{party:"Labour",year:2019}
+],["Labour","Labour","Conservative","Conservative"]);
+assert.deepEqual(diag.confusion,{Labour:{Labour:1,Conservative:1},Conservative:{Labour:1,Conservative:1}});
+assert.deepEqual(diag.decades.map(x=>[x.period,x.total,x.correct]),[
+ ["1979–1989",2,1],["2000–2009",1,1],["2010–2019",1,0]
+]);
+assert.throws(()=>engine.evaluatePredictions([{party:"Labour",year:2001}],[]),/Prediction count/);
+assert.ok(Array.isArray(vocab.clues) && vocab.clues.length>0,"vocabulary clues documented");
 const x = engine.makeVector(examples[0].text, vocab);
 assert.equal(x.length, vocab.words.length);
 assert.ok(x.some(n => n > 0));
@@ -64,6 +81,12 @@ assert.doesNotMatch(ui, /Guessing baseline:/, "majority class is not random gues
 assert.match(html, /What is logistic regression\?/, "student explanation is present");
 assert.match(ui, /tf\.layers\.dropout/);
 assert.match(ui, /Logistic regression/);
+assert.match(ui, /showEvaluation\(parts\.test,guessed\)/,"test predictions drive diagnostics");
+assert.match(ui, /heldOutParts\.train/,"filter comes after speaker split");
+assert.match(html, /id="trainingSet"/,"quality experiment selection");
+assert.match(html, /id="evaluationReport"/,"evaluation visible");
+assert.match(html, /id="vocabularyReport"/,"vocabulary audit visible");
+assert.match(ui, /validation and test sets are unchanged/,"students see fair comparison");
 assert.match(ui,/selectedEpoch=bestEpoch/,"selected epoch is marked");
 assert.match(ui,/tensor2d\(engine\.encodeRows\(rows, vocab\),\[rows\.length,vocab\.words\.length\]\)/,"correct typed array tensor shape");
 assert.match(html,/value="1600" selected/,"expanded vocabulary option");

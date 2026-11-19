@@ -70,6 +70,7 @@
         <a class="secondary text-sm" href="./speech-lab-overfitting.html">Try the original overfitting demo ↗</a>
       </div>
       <dl class="mt-4 grid gap-3 sm:grid-cols-2">
+        <div><dt class="font-semibold text-sm">Speech quality experiment</dt><dd class="text-sm text-slate-600">Compare all training speeches with longer contributions. Validation and test speeches stay the same for a fair comparison.</dd></div>
         <div><dt class="font-semibold text-sm">Better word clues</dt><dd class="text-sm text-slate-600">Select clues used by several MPs, so one speaker repeating a phrase cannot dominate.</dd></div>
         <div><dt class="font-semibold text-sm">Optional early stopping</dt><dd class="text-sm text-slate-600">Switch it on to stop when validation stops improving. With it off, the network completes your chosen epochs. Either way, it keeps its best version.</dd></div>
         <div><dt class="font-semibold text-sm">Dropout and regularisation</dt><dd class="text-sm text-slate-600">Temporarily switch off some neurons and discourage overly strong connections during training.</dd></div>
@@ -81,6 +82,12 @@
       <section class="panel">
         <h2 class="text-xl font-bold">2. Design the network</h2>
         <p class="mt-1 text-sm text-slate-500">Choose the size and activation, then compare the test results.</p>
+        <label for="trainingSet" class="mt-5 block text-sm font-semibold">Training examples</label>
+        <select id="trainingSet" class="field mt-2">
+          <option value="all">All speeches · reference</option>
+          <option value="substantial" selected>Longer speeches · experiment</option>
+        </select>
+        <p class="mt-2 text-xs text-slate-500">Longer mode keeps training speeches of at least 100 words with varied vocabulary and excludes recognisable procedural openings. It does not change which MPs are in validation or test.</p>
         <label for="activation" class="mt-5 block text-sm font-semibold">Activation function</label>
         <select id="activation" class="field mt-2">
           <option value="relu">ReLU</option><option value="tanh">Tanh</option><option value="sigmoid">Sigmoid</option>
@@ -134,6 +141,10 @@
         </div>
         <p id="splitInfo" class="mt-3 text-sm text-slate-500">A majority-class baseline is useful for checking whether the network is actually learning.</p>
         <p id="baselineInfo" class="mt-3 text-sm font-semibold text-teal-800">Train both models to compare their results.</p>
+        <div class="mt-5 grid gap-4 sm:grid-cols-2">
+          <section class="rounded-xl border border-slate-200 bg-slate-50 p-4" id="evaluationReport" aria-label="Unseen test errors and decade results"></section>
+          <section class="rounded-xl border border-slate-200 bg-slate-50 p-4" id="vocabularyReport" aria-label="Vocabulary evidence"></section>
+        </div>
         <p class="mt-2 text-sm text-slate-600"><strong>What is logistic regression?</strong> It's a simple classifier with no hidden layers. It uses the same speech features as the neural network, so we can check whether a complicated model is actually better. <strong>Always predict one party</strong> is an even simpler baseline: choose the most common party in the training set, then measure how often that answer is correct for unseen MPs. Aim to beat this baseline.</p>
       </section>
     </div>
