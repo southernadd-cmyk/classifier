@@ -97,7 +97,17 @@ assert.match(html,/value="1600" selected/,"expanded vocabulary option");
 assert.match(html,/A dashed line marks the best epoch/,"graph teaches selected model");
 
 assert.match(html, /id="predictionModel"/, "students can choose which trained model predicts");
-assert.match(ui, /bayesValAcc>neuralValAcc/, "validation, not test, selects the predictor");
+assert.match(html, /value="neural"/, "neural network is available");
+assert.match(html, /value="bayes"/, "Naive Bayes is available");
+assert.match(html, /value="ensemble"/, "ensemble is the third selectable method");
+assert.match(ui, /predictionMode="neural";/, "default stays neural instead of silently switching");
+assert.doesNotMatch(ui, /bayesValAcc>neuralValAcc/, "no automatic single-model selection");
+assert.match(ui, /ensembleValAcc/, "ensemble validation accuracy is reported");
+assert.match(ui, /ensembleTestAcc/, "ensemble held-out test accuracy is reported");
+assert.match(ui, /testPredictions = \{neural:neuralTestPred,bayes:bayesTestPred,ensemble:ensembleTestPred\}/,
+  "selected confusion matrix reflects the ensemble");
+assert.match(ui, /engine\.combineModelScores\(neuralScores,bayesScores\)/,
+  "live prediction combines both real model outputs");
 assert.match(html, /value="all" selected/, "use full training sample by default");
 const maskTerms=engine.bayesFeatureTokens("Labour Conservative's Tory and public services");
 assert.ok(!maskTerms.some(term=>/labour|conservative|tory/i.test(term)),
@@ -107,6 +117,11 @@ const prediction=engine.predictNaiveBayes(bayes,"public service and transport po
 assert.ok(["Labour","Conservative"].includes(prediction.label),"Naive Bayes predicts a party");
 assert.equal(prediction.scores.length,2,"Naive Bayes compares both classes");
 assert.ok(Math.abs(prediction.scores[0]+prediction.scores[1]-1)<1e-10);
+const blend=engine.combineModelScores([.8,.2],[.2,.8]);
+assert.ok(Math.abs(blend[0]-.5)<1e-12 && Math.abs(blend[1]-.5)<1e-12,"soft vote 50/50");
+assert.deepEqual(engine.combineModelScores([.9,.1],[.7,.3]),[.8,.2],"ensemble combines probabilities per class");
+assert.throws(()=>engine.combineModelScores([.2,.9],[.3,.7]),/valid two-class/,"reject invalid score sums");
+assert.throws(()=>engine.combineModelScores([NaN,1],[.3,.7]),/valid two-class/,"reject invalid scores");
 const mpSummary=engine.evaluateNaiveBayesSpeakers(first.validation,bayes);
 assert.equal(mpSummary.total,new Set(first.validation.map(r=>r.mp)).size,
   "each MP contributes one grouped prediction");

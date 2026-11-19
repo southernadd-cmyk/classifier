@@ -155,18 +155,19 @@
           <section class="rounded-xl border border-slate-200 bg-slate-50 p-4" id="evaluationReport" aria-label="Unseen test errors and decade results"></section>
           <section class="rounded-xl border border-slate-200 bg-slate-50 p-4" id="vocabularyReport" aria-label="Vocabulary evidence"></section>
         </div>
-        <p class="mt-2 text-sm text-slate-600"><strong>Logistic regression</strong> uses the same TF-IDF features as the neural network but no hidden layer. <strong>Naive Bayes</strong> counts frequent words and adjacent phrases; it is a simple statistical model, not a neural network. <strong>Always predict one party</strong> uses the most frequent training label. We choose a prediction model using validation scores, then report the unseen test scores separately. The best model is not necessarily the most complicated one.</p>
+        <p class="mt-2 text-sm text-slate-600"><strong>Logistic regression</strong> uses the same TF-IDF features as the neural network but no hidden layer. <strong>Naive Bayes</strong> counts frequent words and adjacent phrases; it is a simple statistical model, not a neural network. <strong>Ensemble</strong> averages the neural network and Naive Bayes scores with equal 50/50 weight (soft voting); this may help or hurt accuracy because the scores are not calibrated. <strong>Always predict one party</strong> uses the most frequent training label. Compare validation scores before interpreting unseen test scores. The best model is not necessarily the most complicated one.</p>
       </section>
     </div>
     <section class="panel mt-5">
       <h2 class="text-xl font-bold">4. Test a speech</h2>
-      <p class="mt-2 text-sm text-slate-600">Paste a paragraph of political speech or try a real held-out Commons example. The default predictor is selected by validation accuracy, not test accuracy.</p>
+      <p class="mt-2 text-sm text-slate-600">Paste a paragraph of political speech or try a real held-out Commons example. Choose a neural network, Naive Bayes or a 50/50 ensemble. Each model's validation and unseen test results are shown above.</p>
       <label for="predictionModel" class="mt-4 block text-sm font-semibold">Model used for predictions</label>
       <select id="predictionModel" class="field mt-2" disabled>
         <option value="neural">Neural network · adjustable hidden layers</option>
         <option value="bayes">Naive Bayes · frequent words and phrases</option>
+        <option value="ensemble">Ensemble · 50/50 NN + NB score blend</option>
       </select>
-      <p id="selectionInfo" class="mt-2 text-xs text-slate-600">Train both models to compare validation accuracy.</p>
+      <p id="selectionInfo" class="mt-2 text-xs text-slate-600">Train both models, then choose Neural network, Naive Bayes or Ensemble.</p>
       <div class="mt-4 flex flex-wrap items-center gap-3">
         <button type="button" id="randomSpeech" disabled class="secondary">Use a held-out speech</button>
         <span id="selectedSpeechMeta" class="text-sm text-slate-500"></span>
@@ -178,7 +179,7 @@
         <p class="text-sm text-slate-500">Predictions require a trained model.</p>
       </div>
       <div id="predictionResult" class="mt-5" role="status" aria-live="polite"></div>
-      <p class="mt-3 text-xs text-slate-500">Model scores are not calibrated probabilities (especially for Naive Bayes). These are patterns in historical text, not a person\'s beliefs or identity.</p>
+      <p class="mt-3 text-xs text-slate-500">Model and ensemble scores are not calibrated probabilities (especially for Naive Bayes). These are patterns in historical text, not a person\'s beliefs or identity.</p>
     </section>
     <footer class="py-8 text-sm text-slate-500">
       Source: Jack Blumenau (2021), <em>House of Commons Parliamentary Debates, 1979–2019</em>, UK Data Service, DOI: 10.5255/UKDA-SN-854292. Open Parliament Licence v3.0. Training is performed in your browser; your pasted text is not sent to a prediction server.

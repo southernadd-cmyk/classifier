@@ -236,6 +236,21 @@
     return {correct,total:predictions.length,
       accuracy:correct/predictions.length,predictions};
   }
+  // Soft-voting ensemble for classroom comparison: each independently trained
+  // model contributes half of its two-class output. These scores are NOT
+  // calibrated probabilities (Naive Bayes can be especially overconfident).
+  function combineModelScores(neuralScores,bayesScores) {
+    for(const scores of [neuralScores,bayesScores]) {
+      if(!scores || scores.length!==2 ||
+         !Array.from(scores).every(value=>Number.isFinite(value) && value>=0 && value<=1) ||
+         Math.abs(Number(scores[0])+Number(scores[1])-1)>.001)
+        throw new Error("Ensemble requires two valid two-class score vectors.");
+    }
+    return [
+      (Number(neuralScores[0])+Number(bayesScores[0]))/2,
+      (Number(neuralScores[1])+Number(bayesScores[1]))/2
+    ];
+  }
   const indexCache=new WeakMap();
   function vocabularyIndex(vocab) {
     if(!indexCache.has(vocab))
@@ -273,5 +288,5 @@
   }
   return { tokenize, featureTokens, splitBySpeaker, isSubstantialSpeech, chooseTrainingSpeeches,
     evaluatePredictions, buildVocabulary, makeVector, encodeRows, modelInputsFromText, seededRandom,
-    bayesFeatureTokens,trainNaiveBayes,predictNaiveBayes,evaluateNaiveBayesSpeakers };
+    bayesFeatureTokens,trainNaiveBayes,predictNaiveBayes,evaluateNaiveBayesSpeakers,combineModelScores };
 });
