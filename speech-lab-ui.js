@@ -11,6 +11,7 @@ let model = null;
 let bayes = null;
 let predictionMode = "neural";
 let testPredictions = null;
+let speakerResults = null;
 let vocabulary = null;
 let split = null;
 let layers = [16];
@@ -47,12 +48,18 @@ const setBusy = value => {
   E("randomSpeech").disabled = value || !model;
   E("predict").disabled = value || !model;
   E("predictionModel").disabled = value || !model || !bayes;
+  E("randomSpeaker").disabled = value || !speakerResults;
   document.querySelectorAll(".layerSelect,.removeLayer").forEach(el => el.disabled = value || (el.classList.contains("removeLayer") && layers.length === 1));
 };
 
 function resetModel() {
   if (model) model.dispose();
   model = null; bayes = null; predictionMode = "neural"; testPredictions = null;
+  speakerResults = null;
+  E("speakerAccuracy").textContent = "—";
+  E("speakerContext").textContent = "Train to compare single-speech and whole-speaker predictions.";
+  E("randomSpeaker").disabled = true;
+  E("speakerExample").replaceChildren();
   vocabulary = null; split = null; lastPoint = null; heldOutChoice = null; selectedEpoch=null;
   E("predictionModel").value = "neural"; E("predictionModel").disabled = true;
   E("selectionInfo").textContent = "Train both models to compare validation accuracy.";
@@ -364,6 +371,14 @@ async function train() {
     const bayesValAcc = bayesValPred.filter((value,i) => value === parts.validation[i].party).length / parts.validation.length;
     const bayesTestPred = parts.test.map(row => engine.predictNaiveBayes(candidateBayes,row.text).label);
     const bayesTestAcc = bayesTestPred.filter((value,i) => value === parts.test[i].party).length / parts.test.length;
+    const bayesSpeakersValidation=engine.evaluateNaiveBayesSpeakers(parts.validation,candidateBayes);
+    const bayesSpeakersTest=engine.evaluateNaiveBayesSpeakers(parts.test,candidateBayes);
+    speakerResults=bayesSpeakersTest.predictions;
+    E("speakerAccuracy").textContent=formatPercent(bayesSpeakersTest.accuracy);
+    E("speakerContext").textContent=bayesSpeakersTest.correct+" of "+bayesSpeakersTest.total+
+      " previously unseen MPs classified correctly using all "+parts.test.length+" test speeches. "+
+      "Validation speaker accuracy: "+formatPercent(bayesSpeakersValidation.accuracy)+
+      ". Each MP is counted once; this is a different measurement from classifying one speech.";
     textStatus("Evaluating held-out MPs…");
     let neuralTestPred = null;
     // Predict once for the confusion matrix and decade breakdown.
@@ -504,6 +519,18 @@ E("trainingSet").addEventListener("change",newConfig);
 E("epochs").addEventListener("change",newConfig);
 E("earlyStop").addEventListener("change",newConfig);
 E("train").addEventListener("click",train);
+E("randomSpeaker").addEventListener("click",()=>{
+  if(!speakerResults || busy)return;
+  const result=speakerResults[Math.floor(Math.random()*speakerResults.length)];
+  const box=E("speakerExample");box.replaceChildren();
+  addNode(box,"p",{class:"mt-3 text-sm font-semibold",text:"Held-out MP · "+result.speechCount+
+    " speeches combined"});
+  addNode(box,"p",{class:"mt-1 text-sm",text:"Predicted: "+result.predicted+
+    " · Actual: "+result.party+" · "+(result.correct?"Correct":"Incorrect")});
+  addNode(box,"p",{class:"mt-1 text-xs text-slate-600",
+    text:"Average relative Labour score: "+formatPercent(result.averageLabourScore)+
+    " (not a calibrated probability). Averages can be more reliable than one short speech."});
+});
 E("predictionModel").addEventListener("change",()=>{
   if(busy || !model || !bayes || !testPredictions)return;
   predictionMode=E("predictionModel").value;
