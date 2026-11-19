@@ -8,6 +8,10 @@ const labels = ["Labour", "Conservative"];
 const palette = { train: "#0f766e", validation: "#d97706" };
 let sample = null;
 let model = null;
+let bayes = null;
+let predictionMode = "neural";
+let testPredictions = null;
+let speakerResults = null;
 let vocabulary = null;
 let split = null;
 let layers = [16];
@@ -43,12 +47,22 @@ const setBusy = value => {
   E("localData").disabled = value;
   E("randomSpeech").disabled = value || !model;
   E("predict").disabled = value || !model;
+  E("predictionModel").disabled = value || !model || !bayes;
+  E("randomSpeaker").disabled = value || !speakerResults;
   document.querySelectorAll(".layerSelect,.removeLayer").forEach(el => el.disabled = value || (el.classList.contains("removeLayer") && layers.length === 1));
 };
 
 function resetModel() {
   if (model) model.dispose();
-  model = null; vocabulary = null; split = null; lastPoint = null; heldOutChoice = null; selectedEpoch=null;
+  model = null; bayes = null; predictionMode = "neural"; testPredictions = null;
+  speakerResults = null;
+  E("speakerAccuracy").textContent = "—";
+  E("speakerContext").textContent = "Train to compare single-speech and whole-speaker predictions.";
+  E("randomSpeaker").disabled = true;
+  E("speakerExample").replaceChildren();
+  vocabulary = null; split = null; lastPoint = null; heldOutChoice = null; selectedEpoch=null;
+  E("predictionModel").value = "neural"; E("predictionModel").disabled = true;
+  E("selectionInfo").textContent = "Train both models to compare validation accuracy.";
   epochsHistory = [];
   ["trainAccuracy","validationAccuracy","testAccuracy"].forEach(id => E(id).textContent = "—");
   E("splitInfo").textContent = "A majority-class baseline is useful for checking whether the network is actually learning.";
@@ -186,12 +200,12 @@ function showVocabularyClues(vocab) {
       (v,i)=>addNode(tr,"td",{class:"py-2 pr-2"+(i===0?" font-medium":""),text:v}));
   }
 }
-function showEvaluation(rows, predictions) {
+function showEvaluation(rows, predictions, modelLabel="neural network") {
   const stats=engine.evaluatePredictions(rows,predictions);
   const host=E("evaluationReport");host.replaceChildren();
   addNode(host,"h4",{class:"font-semibold text-base",text:"Where does the model make mistakes?"});
   addNode(host,"p",{class:"mt-1 text-xs text-slate-600",
-    text:"Unseen test speeches only. Each row is the MP's actual party; each column is the prediction. Use validation results, not repeated test scores, to select settings."});
+    text:"Unseen test speeches · "+modelLabel+". Each row is the MP's actual party; each column is the prediction. Use validation results, not repeated test scores, to select settings."});
   const table=addNode(host,"table",{class:"w-full mt-3 text-sm text-left"});
   const head=addNode(table,"thead"),h=addNode(head,"tr",{class:"border-b border-slate-200"});
   ["Actual ↓ / Predicted →","Labour","Conservative"].forEach(v=>addNode(h,"th",{class:"py-2 pr-2",text:v}));
@@ -351,13 +365,28 @@ async function train() {
       baselineAccuracy=(await baselineTensors[1].data())[0];
       baselineTensors.forEach(t=>t.dispose());
     } finally {linear.dispose();}
+    textStatus("Comparing a word-frequency model (Naive Bayes)…");
+    const candidateBayes = engine.trainNaiveBayes(parts.train, 8000);
+    const bayesValPred = parts.validation.map(row => engine.predictNaiveBayes(candidateBayes,row.text).label);
+    const bayesValAcc = bayesValPred.filter((value,i) => value === parts.validation[i].party).length / parts.validation.length;
+    const bayesTestPred = parts.test.map(row => engine.predictNaiveBayes(candidateBayes,row.text).label);
+    const bayesTestAcc = bayesTestPred.filter((value,i) => value === parts.test[i].party).length / parts.test.length;
+    const bayesSpeakersValidation=engine.evaluateNaiveBayesSpeakers(parts.validation,candidateBayes);
+    const bayesSpeakersTest=engine.evaluateNaiveBayesSpeakers(parts.test,candidateBayes);
+    speakerResults=bayesSpeakersTest.predictions;
+    E("speakerAccuracy").textContent=formatPercent(bayesSpeakersTest.accuracy);
+    E("speakerContext").textContent=bayesSpeakersTest.correct+" of "+bayesSpeakersTest.total+
+      " previously unseen MPs classified correctly using all "+parts.test.length+" test speeches. "+
+      "Validation speaker accuracy: "+formatPercent(bayesSpeakersValidation.accuracy)+
+      ". Each MP is counted once; this is a different measurement from classifying one speech.";
     textStatus("Evaluating held-out MPs…");
+    let neuralTestPred = null;
     // Predict once for the confusion matrix and decade breakdown.
     const predictedTensor=created.predict(testX);
     try {
       const scores=await predictedTensor.data();
       const guessed=parts.test.map((_,i)=>labels[scores[i*2]>=scores[i*2+1]?0:1]);
-      showEvaluation(parts.test,guessed);
+      neuralTestPred=guessed;
     } finally { predictedTensor.dispose(); }
     const result = created.evaluate(testX,testY);
     const outputs = Array.isArray(result)?result:[result];
@@ -365,7 +394,9 @@ async function train() {
     outputs.forEach(x=>x.dispose());
     model = created;
     created = null;
+    bayes = candidateBayes;
     vocabulary = vocab;
+    testPredictions = {neural:neuralTestPred,bayes:bayesTestPred};
     split = parts;
     // Show accuracy for the restored best-validation checkpoint.
     const trainResult=model.evaluate(trainX,trainY);
@@ -373,7 +404,17 @@ async function train() {
     const trainT=Array.isArray(trainResult)?trainResult:[trainResult];
     const valT=Array.isArray(valResult)?valResult:[valResult];
     E("trainAccuracy").textContent=formatPercent((await trainT[1].data())[0]);
-    E("validationAccuracy").textContent=formatPercent((await valT[1].data())[0]);
+    const neuralValAcc=(await valT[1].data())[0];
+    E("validationAccuracy").textContent=formatPercent(neuralValAcc);
+    // Validation chooses the predictor. The unseen test set is not used to select it.
+    predictionMode=bayesValAcc>neuralValAcc?"bayes":"neural";
+    E("predictionModel").value=predictionMode;
+    E("predictionModel").disabled=false;
+    E("selectionInfo").textContent = "Chosen by validation accuracy: neural network "+
+      formatPercent(neuralValAcc)+"; Naive Bayes "+formatPercent(bayesValAcc)+
+      ". You can switch models to compare predictions.";
+    showEvaluation(parts.test,testPredictions[predictionMode],
+      predictionMode==="bayes"?"Naive Bayes":"neural network");
     [...trainT,...valT].forEach(t=>t.dispose());
     E("testAccuracy").textContent = formatPercent(testAcc);
     // Choose the majority-party baseline from training data only, never from the test labels.
@@ -385,7 +426,8 @@ async function train() {
       " unseen test speeches. "+vocab.words.length+" TF-IDF word and phrase features."+
       (qualityMode==="substantial"?" Filter kept "+parts.train.length+" of "+originalTrainingCount+
       " training speeches; validation and test sets are unchanged.":" All eligible training speeches used.");
-    E("baselineInfo").textContent="Neural network: "+formatPercent(testAcc)+
+    E("baselineInfo").textContent="Unseen test · Neural network: "+formatPercent(testAcc)+
+      " · Naive Bayes: "+formatPercent(bayesTestAcc)+
       " · Logistic regression: "+formatPercent(baselineAccuracy)+
       " · Always predict "+majorityParty+": "+formatPercent(baseline)+".";
     textStatus((stoppedEarly
@@ -412,20 +454,30 @@ async function predict() {
     return;
   }
   const vec = engine.modelInputsFromText(text,vocabulary);
-  if (!vec.some(x=>x>0)) {
+  if (predictionMode === "neural" && !vec.some(x=>x>0)) {
     E("predictionResult").textContent="None of the model's learned words appear in this speech. Try a longer, more relevant paragraph.";
     return;
   }
   let x, y;
   try {
-    x = tf.tensor2d([vec]);
-    y = model.predict(x);
-    const scores = (await y.array())[0];
+    let scores, matchedTerms;
+    if(predictionMode==="bayes"){
+      const response=engine.predictNaiveBayes(bayes,text);
+      scores=response.scores; matchedTerms=response.matchedTerms;
+      if(!matchedTerms){
+        E("predictionResult").textContent="No recognised word-model terms. Try a longer speech.";
+        return;
+      }
+    } else {
+      x=tf.tensor2d([vec]);
+      y=model.predict(x);
+      scores=(await y.array())[0];
+    }
     const best = scores[0]>=scores[1]?0:1;
     const box = E("predictionResult");
     box.replaceChildren();
     const result = addNode(box,"div",{class:"rounded-xl bg-slate-50 border border-slate-200 p-5"});
-    addNode(result,"p",{class:"text-xs font-bold uppercase tracking-wider text-slate-500",text:"Prediction"});
+    addNode(result,"p",{class:"text-xs font-bold uppercase tracking-wider text-slate-500",text:"Prediction · "+(predictionMode==="bayes"?"Naive Bayes":"neural network")});
     addNode(result,"p",{class:"mt-1 text-2xl font-bold",text:labels[best]});
     addNode(result,"p",{class:"mt-1 text-sm text-slate-600",text:"Model score: "+formatPercent(scores[best])+" (not a calibrated probability)"});
     for(let i=0;i<2;i++) {
@@ -442,8 +494,9 @@ async function predict() {
       addNode(result,"p",{class:"mt-4 text-sm font-medium",text:
         "Source label: "+heldOutChoice.party+" · "+(labels[best]===heldOutChoice.party?"Correct":"Incorrect")+" on this example."});
     }
-    const tokenHits = engine.featureTokens(text).filter(word=>vocabulary.words.includes(word));
-    addNode(result,"p",{class:"mt-3 text-xs text-slate-500",text:"Recognised "+new Set(tokenHits).size+" distinct vocabulary terms."});
+    const nHits=predictionMode==="bayes"?matchedTerms:
+      new Set(engine.featureTokens(text).filter(word=>vocabulary.words.includes(word))).size;
+    addNode(result,"p",{class:"mt-3 text-xs text-slate-500",text:"Recognised "+nHits+" distinct vocabulary terms."});
   } catch(error) {
     E("predictionResult").textContent="Prediction failed: "+error.message;
   } finally {
@@ -466,6 +519,25 @@ E("trainingSet").addEventListener("change",newConfig);
 E("epochs").addEventListener("change",newConfig);
 E("earlyStop").addEventListener("change",newConfig);
 E("train").addEventListener("click",train);
+E("randomSpeaker").addEventListener("click",()=>{
+  if(!speakerResults || busy)return;
+  const result=speakerResults[Math.floor(Math.random()*speakerResults.length)];
+  const box=E("speakerExample");box.replaceChildren();
+  addNode(box,"p",{class:"mt-3 text-sm font-semibold",text:"Held-out MP · "+result.speechCount+
+    " speeches combined"});
+  addNode(box,"p",{class:"mt-1 text-sm",text:"Predicted: "+result.predicted+
+    " · Actual: "+result.party+" · "+(result.correct?"Correct":"Incorrect")});
+  addNode(box,"p",{class:"mt-1 text-xs text-slate-600",
+    text:"Average relative Labour score: "+formatPercent(result.averageLabourScore)+
+    " (not a calibrated probability). Averages can be more reliable than one short speech."});
+});
+E("predictionModel").addEventListener("change",()=>{
+  if(busy || !model || !bayes || !testPredictions)return;
+  predictionMode=E("predictionModel").value;
+  showEvaluation(split.test,testPredictions[predictionMode],
+    predictionMode==="bayes"?"Naive Bayes":"neural network");
+  E("predictionResult").replaceChildren();
+});
 E("predict").addEventListener("click",predict);
 E("randomSpeech").addEventListener("click",showHeldout);
 E("speechText").addEventListener("input",()=>{if(heldOutChoice && E("speechText").value!==heldOutChoice.text) heldOutChoice=null;});

@@ -81,10 +81,11 @@ assert.match(ui, /stopEarly && epoch\+1 >= 12 && staleEpochs >= 6/, "stop rule i
 assert.match(ui, /Completed all /, "full epoch completion is explained");
 assert.match(ui, /const trainingCounts=labels\.map\(party=>parts\.train/, "baseline selected only from training");
 assert.doesNotMatch(ui, /Guessing baseline:/, "majority class is not random guessing");
-assert.match(html, /What is logistic regression\?/, "student explanation is present");
+assert.match(html, /Logistic regression/, "logistic regression is explained");
+assert.match(html, /Naive Bayes/, "the word-frequency model is explained");
 assert.match(ui, /tf\.layers\.dropout/);
 assert.match(ui, /Logistic regression/);
-assert.match(ui, /showEvaluation\(parts\.test,guessed\)/,"test predictions drive diagnostics");
+assert.match(ui, /showEvaluation\(parts\.test,testPredictions\[predictionMode\]/, "test diagnostics use the selected model");
 assert.match(ui, /heldOutParts\.train/,"filter comes after speaker split");
 assert.match(html, /id="trainingSet"/,"quality experiment selection");
 assert.match(html, /id="evaluationReport"/,"evaluation visible");
@@ -94,6 +95,25 @@ assert.match(ui,/selectedEpoch=bestEpoch/,"selected epoch is marked");
 assert.match(ui,/tensor2d\(engine\.encodeRows\(rows, vocab\),\[rows\.length,vocab\.words\.length\]\)/,"correct typed array tensor shape");
 assert.match(html,/value="1600" selected/,"expanded vocabulary option");
 assert.match(html,/A dashed line marks the best epoch/,"graph teaches selected model");
+
+assert.match(html, /id="predictionModel"/, "students can choose which trained model predicts");
+assert.match(ui, /bayesValAcc>neuralValAcc/, "validation, not test, selects the predictor");
+assert.match(html, /value="all" selected/, "use full training sample by default");
+const maskTerms=engine.bayesFeatureTokens("Labour Conservative's Tory and public services");
+assert.ok(!maskTerms.some(term=>/labour|conservative|tory/i.test(term)),
+  "party names and possessives must never become Naive Bayes features");
+const bayes=engine.trainNaiveBayes(first.train,400);
+const prediction=engine.predictNaiveBayes(bayes,"public service and transport policy");
+assert.ok(["Labour","Conservative"].includes(prediction.label),"Naive Bayes predicts a party");
+assert.equal(prediction.scores.length,2,"Naive Bayes compares both classes");
+assert.ok(Math.abs(prediction.scores[0]+prediction.scores[1]-1)<1e-10);
+const mpSummary=engine.evaluateNaiveBayesSpeakers(first.validation,bayes);
+assert.equal(mpSummary.total,new Set(first.validation.map(r=>r.mp)).size,
+  "each MP contributes one grouped prediction");
+assert.equal(mpSummary.predictions.reduce((n,r)=>n+r.speechCount,0),first.validation.length,
+  "all held-out speeches contribute to their MP");
+assert.match(html,/id="speakerAccuracy"/,"MP accuracy appears separately");
+assert.match(html,/MP-level accuracy/,"don't mislabel group accuracy as per-speech");
 assert.match(fs.readFileSync("speech-lab-overfitting-ui.js","utf8"),/commons-speech-original\.json/,"original uses frozen data");
 assert.match(html, /speech-lab-overfitting\.html/);
 const oldHtml=fs.readFileSync("speech-lab-overfitting.html","utf8");
