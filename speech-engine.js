@@ -26,20 +26,28 @@
     let x = seed >>> 0;
     return () => ((x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296);
   }
-  // Split by speaker within each party. The same MP never occurs in two sets.
+  // Split by real person, globally: even MPs who changed parties never leak between sets.
+  // Stratify the SPEAKER groups by the party with most sampled speeches.
   function splitBySpeaker(examples, seed = 20261119) {
     const random = seededRandom(seed);
-    const groups = { Labour: new Map(), Conservative: new Map() };
+    const speakers = new Map();
     examples.forEach(row => {
-      if (!row || !(row.party in groups) || !String(row.text || "").trim() || !String(row.mp || "").trim()) return;
-      const party = groups[row.party];
+      if (!row || !["Labour","Conservative"].includes(row.party) ||
+          !String(row.text || "").trim() || !String(row.mp || "").trim()) return;
       const key = String(row.mp);
-      if (!party.has(key)) party.set(key, []);
-      party.get(key).push(row);
+      if (!speakers.has(key)) speakers.set(key, []);
+      speakers.get(key).push(row);
+    });
+    const groups = { Labour: [], Conservative: [] };
+    speakers.forEach((records, person) => {
+      const labourCount = records.filter(row => row.party === "Labour").length;
+      const conservativeCount = records.length - labourCount;
+      const primary = labourCount >= conservativeCount ? "Labour" : "Conservative";
+      groups[primary].push([person, records]);
     });
     const split = { train: [], validation: [], test: [] };
     for (const party of ["Labour", "Conservative"]) {
-      const all = shuffled([...groups[party].entries()], random);
+      const all = shuffled(groups[party], random);
       if (all.length < 8) throw new Error(party + " needs at least eight distinct speakers for speaker-held-out evaluation.");
       const testSpeakers = Math.max(1, Math.round(all.length * .15));
       const validationSpeakers = Math.max(1, Math.round(all.length * .15));
@@ -48,7 +56,11 @@
         split[target].push(...records);
       });
     }
-    for (const name of ["train", "validation", "test"]) split[name] = shuffled(split[name], random);
+    for (const name of ["train", "validation", "test"]) {
+      split[name] = shuffled(split[name], random);
+      const classes = new Set(split[name].map(row => row.party));
+      if (classes.size < 2) throw new Error("Both party labels are needed in the " + name + " partition.");
+    }
     return split;
   }
   function buildVocabulary(trainingDocs, limit = 650) {
