@@ -15,6 +15,8 @@ for (let p = 0; p < 2; p++) {
         mp: party + "-" + person, party, year: 2000 + s
       });
 }
+// Same individual can appear with two historical party labels; this must not leak.
+examples.push({ ...examples[0], party: "Conservative", mp: "Labour-0" });
 const first = engine.splitBySpeaker(examples);
 const second = engine.splitBySpeaker(examples);
 assert.deepEqual(first, second);
