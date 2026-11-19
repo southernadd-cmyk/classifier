@@ -45,6 +45,6 @@ assert.match(html, /speech-lab-ui\.js/);
 assert.match(html, /speech-engine\.js/);
 assert.match(ui, /tf\.sequential\(\)/);
 assert.match(ui, /validationData: \[validationX, validationY\]/);
-assert.match(ui, /evaluate\(testX, testY\)/);
+assert.match(ui, /evaluate\(testX,\s*testY\)/);
 assert.match(ui, /grouped split/i);
 console.log("PASS: speaker-disjoint split, balanced labels, masked TF-IDF, vectors, UI wiring");
