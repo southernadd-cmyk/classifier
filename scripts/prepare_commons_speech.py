@@ -14,6 +14,8 @@ import random
 import re
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from collections import Counter, defaultdict
@@ -168,23 +170,39 @@ def process_archive(archive, out, per_period=PER_PERIOD, max_per_mp=12):
 
 
 def download_archive(destination):
-    req = urllib.request.Request(SOURCE, headers={"User-Agent": "NeuralNetworkLab/1.0 (educational open-data project)"})
+    """Download with bounded retries: the archive host sometimes refuses connections."""
     print("Downloading original CommonsSpeech source (approx. 1 GB)...", flush=True)
-    with urllib.request.urlopen(req, timeout=180) as resp, destination.open("wb") as out:
-        if resp.status != 200:
-            raise RuntimeError("Unexpected HTTP status " + str(resp.status))
-        total = 0
-        while True:
-            chunk = resp.read(1024 * 1024 * 4)
-            if not chunk:
-                break
-            total += len(chunk)
-            out.write(chunk)
-            if total // (1024 * 1024 * 100) != (total - len(chunk)) // (1024 * 1024 * 100):
-                print("Downloaded", total // (1024 * 1024), "MiB", flush=True)
-    if not zipfile.is_zipfile(destination):
-        raise RuntimeError("Source was not a valid ZIP; refusing to publish dataset.")
-    print("Download complete:", total, "bytes", flush=True)
+    for attempt in range(1, 4):
+        try:
+            req = urllib.request.Request(
+                SOURCE,
+                headers={"User-Agent": "NeuralNetworkLab/1.0 (educational open-data project)"},
+            )
+            with urllib.request.urlopen(req, timeout=180) as resp, destination.open("wb") as out:
+                if resp.status != 200:
+                    raise RuntimeError("Unexpected HTTP status " + str(resp.status))
+                total = 0
+                while True:
+                    chunk = resp.read(1024 * 1024 * 4)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    out.write(chunk)
+                    if total // (1024 * 1024 * 100) != (total - len(chunk)) // (1024 * 1024 * 100):
+                        print("Downloaded", total // (1024 * 1024), "MiB", flush=True)
+            if not zipfile.is_zipfile(destination):
+                raise RuntimeError("Source was not a valid ZIP; refusing to publish dataset.")
+            print("Download complete:", total, "bytes", flush=True)
+            return
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+            destination.unlink(missing_ok=True)
+            if isinstance(exc, urllib.error.HTTPError) and exc.code not in (429, 500, 502, 503, 504):
+                raise
+            if attempt == 3:
+                raise RuntimeError("CommonsSpeech archive host unavailable after 3 attempts") from exc
+            delay = attempt * 15
+            print(f"Download failed ({type(exc).__name__}); retrying in {delay}s (attempt {attempt}/3)", flush=True)
+            time.sleep(delay)
 
 
 def main():
