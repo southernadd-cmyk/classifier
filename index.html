@@ -53,7 +53,50 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState } = React;
+
+    // A feature can be numerical or categorical (text). Both must be encoded
+    // consistently at training time and when making a prediction.
+    function isNumericValue(value) {
+      const raw = String(value ?? '').trim();
+      return raw !== '' && Number.isFinite(Number(raw));
+    }
+
+    function makeFeatureSchema(rows, selectedFeatures) {
+      return selectedFeatures.map(name => {
+        const values = rows.map(row => String(row[name] ?? '').trim());
+        if (values.every(isNumericValue)) {
+          return { name, type: 'number' };
+        }
+        return { name, type: 'category', categories: [...new Set(values)] };
+      });
+    }
+
+    function encodeFeatures(row, schema) {
+      return schema.flatMap(feature => {
+        const raw = String(row[feature.name] ?? '').trim();
+        if (feature.type === 'number') {
+          if (!isNumericValue(raw)) {
+            throw new Error(`${feature.name} must contain a valid number.`);
+          }
+          return [Number(raw)];
+        }
+        const index = feature.categories.indexOf(raw);
+        if (index === -1) {
+          throw new Error(`"${raw}" is not a known value for ${feature.name}. Enter a category from the training CSV.`);
+        }
+        return feature.categories.map((_, i) => i === index ? 1 : 0);
+      });
+    }
+
+    function parseEpochs(value) {
+      const raw = String(value).trim();
+      const count = Number(raw);
+      if (!raw || !Number.isSafeInteger(count) || count < 1 || count > 10000) {
+        throw new Error('Epochs must be a whole number between 1 and 10,000.');
+      }
+      return count;
+    }
 
     function App() {
       const [csvData, setCsvData] = useState(null);
@@ -64,94 +107,141 @@
       const [trainingStatus, setTrainingStatus] = useState('');
       const [predictionInput, setPredictionInput] = useState({});
       const [predictionResult, setPredictionResult] = useState('');
+      const [epochs, setEpochs] = useState('150');
+      const [isTraining, setIsTraining] = useState(false);
+      const [featureSchema, setFeatureSchema] = useState([]);
+      const [trainedLabels, setTrainedLabels] = useState([]);
+
+      const resetTraining = () => {
+        if (model) model.dispose();
+        setModel(null);
+        setTrainingStatus('');
+        setPredictionInput({});
+        setPredictionResult('');
+        setFeatureSchema([]);
+        setTrainedLabels([]);
+      };
 
       // Handle CSV upload
       const handleFileUpload = (event) => {
         const file = event.target.files[0];
+        if (!file) return;
         Papa.parse(file, {
           header: true,
+          skipEmptyLines: true,
           complete: (result) => {
-            setCsvData(result.data);
-            setColumns(Object.keys(result.data[0] || {}));
+            resetTraining();
+            const rows = result.data.filter(row => Object.values(row).some(value => String(value ?? '').trim() !== ''));
+            setCsvData(rows);
+            setColumns(result.meta.fields || Object.keys(rows[0] || {}));
+            setLabel('');
+            setFeatures([]);
+            if (result.errors.length) {
+              setTrainingStatus(`CSV imported with ${result.errors.length} parsing warning(s).`);
+            }
           },
-          error: (error) => alert('Error parsing CSV: ' + error),
+          error: (error) => setTrainingStatus('Error parsing CSV: ' + error.message),
         });
       };
 
       // Create and train model
       const trainModel = async () => {
-        if (!label || features.length === 0) {
-          alert('Please select a label and at least one feature.');
+        if (isTraining) return;
+        if (!csvData || !label || features.length === 0) {
+          setTrainingStatus('Please upload a CSV, select a label and at least one feature.');
           return;
         }
 
-        setTrainingStatus('Training...');
-        const tfModel = tf.sequential();
-        tfModel.add(tf.layers.dense({
-          units: 10,
-          activation: 'relu',
-          inputShape: [features.length],
-        }));
-        tfModel.add(tf.layers.dense({
-          units: [...new Set(csvData.map(row => row[label]))].length,
-          activation: 'softmax',
-        }));
-        tfModel.compile({
-          optimizer: 'adam',
-          loss: 'categoricalCrossentropy',
-          metrics: ['accuracy'],
-        });
+        let tfModel = null;
+        let xsTensor = null;
+        let ysTensor = null;
+        try {
+          const epochCount = parseEpochs(epochs);
+          const rows = csvData.filter(row =>
+            String(row[label] ?? '').trim() !== '' &&
+            features.every(feature => String(row[feature] ?? '').trim() !== '')
+          );
+          if (rows.length < 2) throw new Error('Not enough complete CSV rows to train.');
+          const labels = [...new Set(rows.map(row => String(row[label]).trim()))];
+          if (labels.length < 2) throw new Error('The label column needs at least two distinct classes.');
 
-        // Prepare data
-        const xs = [];
-        const ys = [];
-        const labelValues = [...new Set(csvData.map(row => row[label]))];
-        const labelToIndex = labelValues.reduce((acc, val, i) => ({ ...acc, [val]: i }), {});
+          const schema = makeFeatureSchema(rows, features);
+          const xs = rows.map(row => encodeFeatures(row, schema));
+          const ys = rows.map(row => {
+            const index = labels.indexOf(String(row[label]).trim());
+            return labels.map((_, i) => i === index ? 1 : 0);
+          });
 
-        csvData.forEach(row => {
-          const featureValues = features.map(f => parseFloat(row[f]) || 0);
-          xs.push(featureValues);
-          const labelIndex = labelToIndex[row[label]];
-          const oneHot = Array(labelValues.length).fill(0);
-          oneHot[labelIndex] = 1;
-          ys.push(oneHot);
-        });
+          tfModel = tf.sequential();
+          tfModel.add(tf.layers.dense({
+            units: 10,
+            activation: 'relu',
+            inputShape: [xs[0].length],
+          }));
+          tfModel.add(tf.layers.dense({
+            units: labels.length,
+            activation: 'softmax',
+          }));
+          tfModel.compile({
+            optimizer: 'adam',
+            loss: 'categoricalCrossentropy',
+            metrics: ['accuracy'],
+          });
 
-        const xsTensor = tf.tensor2d(xs);
-        const ysTensor = tf.tensor2d(ys);
-
-        // Train
-        await tfModel.fit(xsTensor, ysTensor, {
-          epochs: 150,
-          callbacks: {
-            onEpochEnd: (epoch, logs) => {
-              setTrainingStatus(`Training... Epoch ${epoch + 1}, Accuracy: ${(logs.acc * 100).toFixed(2)}%`);
+          xsTensor = tf.tensor2d(xs);
+          ysTensor = tf.tensor2d(ys);
+          setIsTraining(true);
+          setTrainingStatus('Training...');
+          await tfModel.fit(xsTensor, ysTensor, {
+            epochs: epochCount,
+            callbacks: {
+              onEpochEnd: (epoch, logs) => {
+                const accuracy = logs.acc ?? logs.accuracy;
+                const metric = accuracy == null ? '' : `, Accuracy: ${(accuracy * 100).toFixed(2)}%`;
+                setTrainingStatus(`Training... Epoch ${epoch + 1}/${epochCount}${metric}`);
+              },
             },
-          },
-        });
+          });
 
-        setModel(tfModel);
-        setTrainingStatus('Training complete!');
-        tfModel.summary();
-
-        xsTensor.dispose();
-        ysTensor.dispose();
+          if (model) model.dispose();
+          setModel(tfModel);
+          tfModel = null; // The trained model is now owned by React state.
+          setFeatureSchema(schema);
+          setTrainedLabels(labels);
+          setPredictionInput({});
+          setPredictionResult('');
+          setTrainingStatus(`Training complete: ${epochCount} epochs, ${rows.length} examples.`);
+        } catch (error) {
+          setTrainingStatus(`Training failed: ${error.message}`);
+        } finally {
+          if (xsTensor) xsTensor.dispose();
+          if (ysTensor) ysTensor.dispose();
+          if (tfModel) tfModel.dispose();
+          setIsTraining(false);
+        }
       };
 
-      // Test prediction
+      // Test prediction using the same feature encoding as training.
       const testPrediction = async () => {
         if (!model) {
-          alert('Train a model first.');
+          setPredictionResult('Train a model first.');
           return;
         }
-        const input = features.map(f => parseFloat(predictionInput[f]) || 0);
-        const inputTensor = tf.tensor2d([input]);
-        const prediction = model.predict(inputTensor);
-        const result = await prediction.array();
-        const predictedClass = [...new Set(csvData.map(row => row[label]))][result[0].indexOf(Math.max(...result[0]))];
-        setPredictionResult(`Predicted: ${predictedClass}`);
-        inputTensor.dispose();
-        prediction.dispose();
+        let inputTensor = null;
+        let prediction = null;
+        try {
+          const input = encodeFeatures(predictionInput, featureSchema);
+          inputTensor = tf.tensor2d([input]);
+          prediction = model.predict(inputTensor);
+          const scores = (await prediction.array())[0];
+          const classIndex = scores.indexOf(Math.max(...scores));
+          setPredictionResult(`Predicted: ${trainedLabels[classIndex]}`);
+        } catch (error) {
+          setPredictionResult(`Cannot predict: ${error.message}`);
+        } finally {
+          if (inputTensor) inputTensor.dispose();
+          if (prediction) prediction.dispose();
+        }
       };
 
       // Export model
@@ -176,7 +266,7 @@
           {/* CSV Upload */}
           <div className="mb-4">
             <label className="block text-lg font-medium">Upload CSV</label>
-            <input type="file" accept=".csv" onChange={handleFileUpload} className="mt-2" />
+            <input type="file" accept=".csv" onChange={handleFileUpload} disabled={isTraining} className="mt-2" />
           </div>
 
           {/* Label Selection */}
@@ -186,7 +276,8 @@
               <select
                 className="border p-2 rounded"
                 value={label}
-                onChange={(e) => setLabel(e.target.value)}
+                onChange={(e) => { resetTraining(); setLabel(e.target.value); setFeatures(prev => prev.filter(f => f !== e.target.value)); }}
+                disabled={isTraining}
               >
                 <option value="">Select a label</option>
                 {columns.map(col => (
@@ -206,10 +297,12 @@
                     type="checkbox"
                     checked={features.includes(col)}
                     onChange={() => {
+                      resetTraining();
                       setFeatures(prev =>
                         prev.includes(col) ? prev.filter(f => f !== col) : [...prev, col]
                       );
                     }}
+                    disabled={isTraining}
                     className="mr-2"
                   />
                   <span>{col}</span>
@@ -218,29 +311,60 @@
             </div>
           )}
 
-          {/* Train Button */}
+          {/* Training settings and progress */}
           {csvData && (
-            <button
-              onClick={trainModel}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Train Model
-            </button>
+            <div className="mb-4">
+              <label htmlFor="epochs" className="block text-lg font-medium">Training epochs</label>
+              <input
+                id="epochs"
+                type="number"
+                min="1"
+                max="10000"
+                step="1"
+                value={epochs}
+                disabled={isTraining}
+                onChange={(e) => setEpochs(e.target.value)}
+                className="mt-2 border p-2 rounded w-32"
+              />
+              <p className="text-sm text-gray-600 mt-1">Choose 1–10,000 epochs. Default: 150.</p>
+              <button
+                onClick={trainModel}
+                disabled={isTraining}
+                className="mt-3 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
+              >
+                {isTraining ? 'Training...' : 'Train Model'}
+              </button>
+            </div>
           )}
-          <p className="mt-2">{trainingStatus}</p>
+          <p className="mt-2" role="status" aria-live="polite">{trainingStatus}</p>
 
           {/* Test Prediction */}
-          {model && (
+          {model && !isTraining && (
             <div className="mt-4">
               <h2 className="text-lg font-medium">Test Prediction</h2>
-              {features.map(f => (
-                <div key={f} className="mb-2">
-                  <label>{f}: </label>
+              <p className="text-sm text-gray-600 mb-2">Enter numbers for numerical features or text values from your CSV for categorical features.</p>
+              {featureSchema.map((feature, index) => (
+                <div key={feature.name} className="mb-3">
+                  <label htmlFor={`prediction-${index}`} className="block">{feature.name}</label>
                   <input
-                    type="text"
-                    onChange={(e) => handlePredictionInput(f, e.target.value)}
-                    className="border p-1 rounded"
+                    id={`prediction-${index}`}
+                    type={feature.type === 'number' ? 'number' : 'text'}
+                    step={feature.type === 'number' ? 'any' : undefined}
+                    list={feature.type === 'category' ? `categories-${index}` : undefined}
+                    value={predictionInput[feature.name] ?? ''}
+                    onChange={(e) => handlePredictionInput(feature.name, e.target.value)}
+                    className="border p-2 rounded"
                   />
+                  {feature.type === 'category' && (
+                    <React.Fragment>
+                      <datalist id={`categories-${index}`}>
+                        {feature.categories.map(category => (
+                          <option key={category} value={category} />
+                        ))}
+                      </datalist>
+                      <p className="text-xs text-gray-600 mt-1">Text — choose a value found in the training data.</p>
+                    </React.Fragment>
+                  )}
                 </div>
               ))}
               <button
@@ -249,7 +373,7 @@
               >
                 Predict
               </button>
-              <p className="mt-2">{predictionResult}</p>
+              <p className="mt-2" role="status">{predictionResult}</p>
             </div>
           )}
 
