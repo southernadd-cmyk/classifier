@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -39,7 +40,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/commons-speech-sample.json
-          if ! git diff --cached --quiet; then
-            git commit -m "data: publish balanced CommonsSpeech teaching sample"
-            git push
+          if git diff --cached --quiet; then
+            echo "Teaching sample is unchanged; nothing to publish."
+            exit 0
           fi
+
+          git commit -m "data: publish balanced CommonsSpeech teaching sample"
+
+          # Other commits can land while the 1 GB source is being processed.
+          # Always rebase on current main and never force-push.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              echo "Teaching sample published successfully."
+              exit 0
+            fi
+            echo "Remote advanced during push (attempt ${attempt}/5); retrying."
+            sleep $((attempt * 2))
+          done
+
+          echo "::error::Could not publish teaching sample after five attempts."
+          exit 1
