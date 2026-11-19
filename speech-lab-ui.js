@@ -49,6 +49,7 @@ function resetModel() {
   epochsHistory = [];
   ["trainAccuracy","validationAccuracy","testAccuracy"].forEach(id => E(id).textContent = "—");
   E("splitInfo").textContent = "A majority-class baseline is useful for checking whether the network is actually learning.";
+  E("baselineInfo").textContent = "Train both models to see how they perform on new MPs.";
   E("chartArea").innerHTML = '<p class="py-20 text-center text-sm text-slate-400">Train a network to display its learning curves.</p>';
   E("predictionResult").replaceChildren();
   E("selectedSpeechMeta").textContent = "";
@@ -215,13 +216,19 @@ async function train() {
     drawDiagram();
     created = tf.sequential();
     layers.forEach((count,i) => {
-      const options = { units:count, activation:E("activation").value };
+      const options = {
+        units:count, activation:E("activation").value,
+        kernelRegularizer:tf.regularizers.l2({l2:.002})
+      };
       if(i===0) options.inputShape = [vocab.words.length];
       created.add(tf.layers.dense(options));
+      created.add(tf.layers.dropout({rate:.35}));
     });
     created.add(tf.layers.dense({units:2,activation:"softmax"}));
     created.compile({optimizer:tf.train.adam(.001),loss:"categoricalCrossentropy",metrics:["accuracy"]});
     const interval = Math.max(1,Math.ceil(epochs / 120));
+    let bestLoss=Infinity,bestWeights=null,staleEpochs=0,stoppedEarly=false;
+    try {
     await created.fit(trainX,trainY,{
       batchSize:32, epochs, shuffle:true,
       validationData: [validationX, validationY],
@@ -238,8 +245,35 @@ async function train() {
           if(epochsHistory.length===1 || epochsHistory.length%5===0 || epoch===epochs-1) drawChart();
           await tf.nextFrame();
         }
+        if(Number.isFinite(lastPoint.valLoss) && lastPoint.valLoss < bestLoss-.001) {
+          bestLoss=lastPoint.valLoss;
+          if(bestWeights) bestWeights.forEach(w=>w.dispose());
+          bestWeights=created.getWeights().map(w=>w.clone());
+          staleEpochs=0;
+        } else if(++staleEpochs >= 5) {
+          stoppedEarly=true; created.stopTraining=true;
+        }
       }}
     });
+    if(bestWeights) created.setWeights(bestWeights);
+    } finally {
+      if(bestWeights) bestWeights.forEach(w=>w.dispose());
+    }
+    textStatus("Comparing with logistic regression…");
+    const linear=tf.sequential();
+    let baselineAccuracy;
+    try {
+      linear.add(tf.layers.dense({units:2,inputShape:[vocab.words.length],activation:"softmax",
+        kernelRegularizer:tf.regularizers.l2({l2:.01})}));
+      linear.compile({optimizer:tf.train.adam(.002),loss:"categoricalCrossentropy",metrics:["accuracy"]});
+      await linear.fit(trainX,trainY,{batchSize:32,epochs:Math.min(epochs,25),shuffle:true,
+        validationData:[validationX,validationY],
+        callbacks:[tf.callbacks.earlyStopping({monitor:"val_loss",patience:4})]});
+      const baselineResult=linear.evaluate(testX,testY);
+      const baselineTensors=Array.isArray(baselineResult)?baselineResult:[baselineResult];
+      baselineAccuracy=(await baselineTensors[1].data())[0];
+      baselineTensors.forEach(t=>t.dispose());
+    } finally {linear.dispose();}
     textStatus("Evaluating held-out MPs…");
     const result = created.evaluate(testX,testY);
     const outputs = Array.isArray(result)?result:[result];
@@ -249,14 +283,23 @@ async function train() {
     created = null;
     vocabulary = vocab;
     split = parts;
-    E("trainAccuracy").textContent = formatPercent(lastPoint.accuracy);
-    E("validationAccuracy").textContent = formatPercent(lastPoint.valAccuracy);
+    // Show accuracy for the restored best-validation checkpoint.
+    const trainResult=created.evaluate(trainX,trainY);
+    const valResult=created.evaluate(validationX,validationY);
+    const trainT=Array.isArray(trainResult)?trainResult:[trainResult];
+    const valT=Array.isArray(valResult)?valResult:[valResult];
+    E("trainAccuracy").textContent=formatPercent((await trainT[1].data())[0]);
+    E("validationAccuracy").textContent=formatPercent((await valT[1].data())[0]);
+    [...trainT,...valT].forEach(t=>t.dispose());
     E("testAccuracy").textContent = formatPercent(testAcc);
     const baseline = Math.max(...labels.map(party => parts.test.filter(x => x.party === party).length)) / parts.test.length;
     E("splitInfo").textContent =
       "Speaker-grouped split · "+parts.train.length+" training / "+parts.validation.length+" validation / "+parts.test.length+
-      " unseen test speeches. Majority-class baseline: "+formatPercent(baseline)+". "+vocab.words.length+" TF-IDF features.";
-    textStatus("Training complete. Test speakers were not present in training or validation.");
+      " unseen test speeches. Guessing baseline: "+formatPercent(baseline)+". "+vocab.words.length+" TF-IDF word and phrase features.";
+    E("baselineInfo").textContent="Neural network: "+formatPercent(testAcc)+
+      " · Logistic regression: "+formatPercent(baselineAccuracy)+" · Guessing: "+formatPercent(baseline)+".";
+    textStatus("Training complete"+(stoppedEarly?" (stopped early to avoid memorising)":"")+
+      ". Test speakers were not present in training or validation.");
     E("randomSpeech").disabled=false;
     E("predict").disabled=false;
     drawDiagram();
@@ -306,7 +349,7 @@ async function predict() {
       addNode(result,"p",{class:"mt-4 text-sm font-medium",text:
         "Source label: "+heldOutChoice.party+" · "+(labels[best]===heldOutChoice.party?"Correct":"Incorrect")+" on this example."});
     }
-    const tokenHits = engine.tokenize(text).filter(word=>vocabulary.words.includes(word));
+    const tokenHits = engine.featureTokens(text).filter(word=>vocabulary.words.includes(word));
     addNode(result,"p",{class:"mt-3 text-xs text-slate-500",text:"Recognised "+new Set(tokenHits).size+" distinct vocabulary terms."});
   } catch(error) {
     E("predictionResult").textContent="Prediction failed: "+error.message;

@@ -63,22 +63,40 @@
     }
     return split;
   }
+  // Include adjacent phrases without joining words across ignored filler.
+  function featureTokens(text) {
+    const raw = String(text || "").toLowerCase().replace(/&[a-z]+;/g, " ").match(/[a-z]+(?:'[a-z]+)?/g) || [];
+    const valid = raw.map(w => w.length > 2 && w.length < 24 && !STOP.has(w) && !MASK.has(w) ? w : null);
+    const terms = valid.filter(Boolean);
+    for (let i=0; i<valid.length-1; i++) if(valid[i] && valid[i+1]) terms.push(valid[i]+" "+valid[i+1]);
+    return terms;
+  }
   function buildVocabulary(trainingDocs, limit = 650) {
-    const df = new Map();
+    const df = new Map(), totals = {Labour:0,Conservative:0};
     for (const doc of trainingDocs) {
-      const unique = new Set(tokenize(doc.text));
-      unique.forEach(word => df.set(word, (df.get(word) || 0) + 1));
+      if(!Object.prototype.hasOwnProperty.call(totals,doc.party)) continue;
+      totals[doc.party]++;
+      for (const word of new Set(featureTokens(doc.text))) {
+        if(!df.has(word)) df.set(word,{Labour:0,Conservative:0});
+        df.get(word)[doc.party]++;
+      }
     }
-    const sorted = [...df.entries()].filter(([, n]) => n >= 2)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit);
+    // Score features using only the training labels; no validation/test leakage.
+    const n = totals.Labour + totals.Conservative;
+    const sorted = [...df.entries()].map(([term,t]) => {
+      const a=t.Labour,b=t.Conservative,c=totals.Labour-a,d=totals.Conservative-b;
+      const count=a+b, denominator=(a+b)*(c+d)*(a+c)*(b+d);
+      const score=denominator>0 ? n*Math.pow(a*d-b*c,2)/denominator : 0;
+      return [term,count,score];
+    }).filter(([,count])=>count>=8 && count<=n*.85)
+      .sort((a,b)=>b[2]-a[2] || b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,limit);
     if (sorted.length < 20) throw new Error("Too little meaningful speech text to build the vocabulary.");
-    const n = trainingDocs.length;
     return { words: sorted.map(([term]) => term),
       idf: sorted.map(([, freq]) => Math.log((1 + n) / (1 + freq)) + 1),
       trainDocs: n };
   }
   function makeVector(text, vocabulary) {
-    const words = tokenize(text);
+    const words = featureTokens(text);
     const lookup = new Map(vocabulary.words.map((word, i) => [word, i]));
     const counts = new Map();
     for (const word of words) {
@@ -104,5 +122,5 @@
   function modelInputsFromText(text, vocabulary) {
     return Array.from(makeVector(text, vocabulary));
   }
-  return { tokenize, splitBySpeaker, buildVocabulary, makeVector, encodeRows, modelInputsFromText, seededRandom };
+  return { tokenize, featureTokens, splitBySpeaker, buildVocabulary, makeVector, encodeRows, modelInputsFromText, seededRandom };
 });

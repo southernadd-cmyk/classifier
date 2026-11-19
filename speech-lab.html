@@ -63,6 +63,20 @@
       </div>
     </section>
 
+    <section class="panel mb-5" aria-label="What is new">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 class="text-xl font-bold">What has changed?</h2>
+        <p class="mt-1 text-sm text-slate-600">The original model remembered training speeches but struggled with new MPs. This one tries to learn patterns that transfer.</p></div>
+        <a class="secondary text-sm" href="./speech-lab-overfitting.html">Try the original overfitting demo ↗</a>
+      </div>
+      <dl class="mt-4 grid gap-3 sm:grid-cols-2">
+        <div><dt class="font-semibold text-sm">Better word clues</dt><dd class="text-sm text-slate-600">Look for useful words and two-word phrases, not simply frequent words.</dd></div>
+        <div><dt class="font-semibold text-sm">Stop before memorising</dt><dd class="text-sm text-slate-600">Training ends if validation results stop improving; the best weights are kept.</dd></div>
+        <div><dt class="font-semibold text-sm">Dropout and regularisation</dt><dd class="text-sm text-slate-600">Temporarily switch off some neurons and discourage overly strong connections during training.</dd></div>
+        <div><dt class="font-semibold text-sm">A simple comparison</dt><dd class="text-sm text-slate-600">Logistic regression has no hidden layers. Does it beat our neural network?</dd></div>
+      </dl>
+      <p class="mt-3 text-xs text-slate-500">Choose settings using validation accuracy. Keep the unseen test set for the final check.</p>
+    </section>
     <div class="grid gap-5 lg:grid-cols-3">
       <section class="panel">
         <h2 class="text-xl font-bold">2. Design the network</h2>
@@ -90,7 +104,7 @@
       </section>
       <section class="panel lg:col-span-2">
         <h2 class="text-xl font-bold">3. Train and evaluate</h2>
-        <p class="mt-2 text-sm text-slate-600">Speeches are grouped by MP before splitting into training, validation and test sets. The unseen test set is assessed only after training.</p>
+        <p class="mt-2 text-sm text-slate-600">Speeches are grouped by MP before splitting into training, validation and test sets. The unseen test set is assessed only after training. Choose settings using validation results, not the test score.</p>
         <div class="mt-4 flex flex-wrap items-center gap-4">
           <button type="button" id="train" class="btn" disabled>Train speech classifier</button>
           <span class="text-xs text-slate-500">Runs on your device using TensorFlow.js</span>
@@ -112,6 +126,7 @@
           <div class="metric"><p class="text-sm text-slate-500">Unseen test accuracy</p><p class="mt-1 text-3xl font-bold" id="testAccuracy">—</p></div>
         </div>
         <p id="splitInfo" class="mt-3 text-sm text-slate-500">A majority-class baseline is useful for checking whether the network is actually learning.</p>
+        <p id="baselineInfo" class="mt-3 text-sm font-semibold text-teal-800">Train both models to compare their results.</p>
       </section>
     </div>
     <section class="panel mt-5">
