@@ -139,6 +139,16 @@
           <div class="metric"><p class="text-sm text-slate-500">Validation accuracy</p><p class="mt-1 text-3xl font-bold" id="validationAccuracy">—</p></div>
           <div class="metric"><p class="text-sm text-slate-500">Neural network test accuracy</p><p class="mt-1 text-3xl font-bold" id="testAccuracy">—</p></div>
         </div>
+        <section class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="Classifying complete MP speech collections">
+          <h3 class="text-lg font-semibold">Can more speeches make a stronger prediction?</h3>
+          <p class="mt-1 text-sm text-slate-600">The results above classify one speech at a time. This second experiment groups all available speeches by each previously unseen MP and averages the Naive Bayes evidence. Each MP counts once. This measures <strong>MP-level accuracy</strong>, not single-speech accuracy.</p>
+          <div class="mt-3 flex flex-wrap items-center gap-4">
+            <div><p class="text-xs font-medium text-slate-500">Unseen MP accuracy · all speeches</p><p id="speakerAccuracy" class="mt-1 text-3xl font-bold">—</p></div>
+            <button type="button" id="randomSpeaker" disabled class="secondary text-sm">Try a held-out MP</button>
+          </div>
+          <p id="speakerContext" class="mt-2 text-sm text-slate-600">Train to compare single-speech and whole-speaker predictions.</p>
+          <div id="speakerExample" aria-live="polite"></div>
+        </section>
         <p id="splitInfo" class="mt-3 text-sm text-slate-500">A majority-class baseline is useful for checking whether the network is actually learning.</p>
         <p id="baselineInfo" class="mt-3 text-sm font-semibold text-teal-800">Train the models to compare their results.</p>
         <div class="mt-5 grid gap-4 sm:grid-cols-2">
