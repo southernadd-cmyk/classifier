@@ -39,7 +39,10 @@ const compact=engine.encodeRows(first.train.slice(0,3),vocab);
 assert.ok(compact instanceof Float32Array,"compact training matrix");
 assert.equal(compact.length,3*vocab.words.length);
 assert.equal(engine.isSubstantialSpeech({text:"A brief question."}),false,"short speech removed");
-const longText=("Housing education health transport communities investment public services jobs and local government. ").repeat(18);
+const longText=("Housing education health transport communities investment public services jobs local government " +
+  "manufacturing technology research agriculture schools hospitals childcare environment climate energy " +
+  "infrastructure apprenticeships skills taxation industry planning employment innovation science universities " +
+  "libraries regeneration neighbourhood development security justice. ").repeat(5);
 assert.equal(engine.isSubstantialSpeech({text:longText}),true,"substantial speech kept");
 assert.equal(engine.isSubstantialSpeech({text:"I beg to move, That, at the sitting "+longText}),false,"procedural motion removed");
 assert.equal(engine.chooseTrainingSpeeches([{text:"A brief question."},{text:longText}],"substantial").length,1);
